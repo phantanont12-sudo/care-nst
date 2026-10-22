@@ -1,0 +1,63 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "users": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').exists()",
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && ((auth.uid === $uid && !data.exists() && !newData.child('role').exists()) || root.child('users').child(auth.uid).child('role').val() === 'trainer' || root.child('users').child(auth.uid).child('role').val() === 'commander')",
+        "role": {
+          ".validate": "newData.isString() && newData.val().matches(/^(trainer|commander|nco|instructor|medic|viewer)$/)"
+        },
+        "name": { ".validate": "newData.isString() && newData.val().length <= 120" }
+      }
+    },
+
+    "settings": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').exists()",
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'trainer' || root.child('users').child(auth.uid).child('role').val() === 'commander')"
+    },
+
+    "soldiers": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').exists()",
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'trainer' || root.child('users').child(auth.uid).child('role').val() === 'commander')"
+    },
+
+    "health": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').exists()",
+      "$date": {
+        "$round": {
+          "$sid": {
+            ".write": "auth != null && root.child('users').child(auth.uid).child('role').val().matches(/^(trainer|commander|nco|instructor|medic)$/) && newData.child('by').val() === auth.uid",
+            "t": { ".validate": "newData.isNumber() && newData.val() >= 34 && newData.val() <= 43" },
+            "u": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 4" }
+          }
+        }
+      }
+    },
+
+    "heat": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').exists()",
+      "$date": { "$slot": {
+        ".write": "auth != null && root.child('users').child(auth.uid).child('role').val().matches(/^(trainer|commander|nco|instructor|medic)$/) && newData.child('by').val() === auth.uid"
+      } }
+    },
+
+    "dorm": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').exists()",
+      "$date": { "$slot": {
+        ".write": "auth != null && root.child('users').child(auth.uid).child('role').val().matches(/^(trainer|commander|nco|instructor|medic)$/) && newData.child('by').val() === auth.uid"
+      } }
+    },
+
+    "punish": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').exists()",
+      "$id": {
+        ".write": "auth != null && !data.exists() && newData.child('by').val() === auth.uid && ((root.child('users').child(auth.uid).child('role').val() === 'trainer' && newData.child('minutes').val() <= 12) || (root.child('users').child(auth.uid).child('role').val() === 'nco' && newData.child('minutes').val() <= 2 && newData.child('moves').numChildren() <= 2))",
+        ".validate": "newData.hasChildren(['sid', 'date', 'time', 'moves', 'minutes', 'reason', 'by', 'role']) && newData.child('role').val() === root.child('users').child(auth.uid).child('role').val() && newData.child('minutes').isNumber() && newData.child('minutes').val() > 0"
+      }
+    }
+  }
+}
