@@ -1,14 +1,11 @@
-// ตั้งค่า Firebase ของหน่วย
-// - ปล่อยเป็น null = "โหมดทดลอง" ข้อมูลเก็บในเครื่องนี้เท่านั้น ใช้ลองระบบ/ฝึกครู
-// - ใส่ค่าจาก Firebase Console > Project settings > Your apps > Web app (SDK setup and configuration)
-//   ค่าเหล่านี้ไม่ใช่ความลับ ความปลอดภัยของข้อมูลมาจาก Authentication + database.rules.json
-//
-// ตัวอย่าง:
-// window.FIREBASE_CONFIG = {
-//   apiKey: "AIza....",
-//   authDomain: "cho1pan52.firebaseapp.com",
-//   databaseURL: "https://cho1pan52-default-rtdb.firebaseio.com",
-//   projectId: "cho1pan52",
-//   appId: "1:....:web:...."
-// };
-window.FIREBASE_CONFIG = null;
+// ค่าเชื่อมต่อ Firebase ของหน่วย (ไม่ใช่ความลับ ความปลอดภัยมาจาก Authentication + database.rules.json)
+// ตั้งเป็น null เพื่อกลับไปใช้โหมดทดลอง
+window.FIREBASE_CONFIG = {
+  apiKey: "AIzaSyBFKsmt4KlaUQ7k_hGBXRAwI-XP4eSsqVc",
+  authDomain: "cho1pan52.firebaseapp.com",
+  databaseURL: "https://cho1pan52-default-rtdb.firebaseio.com",
+  projectId: "cho1pan52",
+  storageBucket: "cho1pan52.firebasestorage.app",
+  messagingSenderId: "529356468968",
+  appId: "1:529356468968:web:9bb06d73623899a9898f5d"
+};
