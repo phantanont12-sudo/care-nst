@@ -100,6 +100,8 @@ function flagOf(hi) {
 const slotHI = r => r ? (num(r.hiDirect) != null ? num(r.hiDirect) : heatIndexC(num(r.temp), num(r.rh))) : null;
 
 /* ════════════════ ชั้นข้อมูล: โหมดทดลอง / Firebase ════════════════ */
+// ข้อมูลแอปอยู่ใต้ app/ ใน Firebase (แยกจากข้อมูลระบบเดิมที่ระดับบนสุด) ส่วน users อยู่ระดับบนสุด
+const fbPath = p => p.startsWith('users') ? p : 'app/' + p;
 const Store = {
   mode: null, db: null, auth: null, tree: {}, subs: [],
   _node(path) { return path.split('/').filter(Boolean).reduce((n, k) => (n && typeof n === 'object') ? n[k] : undefined, this.tree); },
@@ -114,7 +116,7 @@ const Store = {
   },
   on(path, cb) {
     if (this.mode === 'firebase') {
-      const ref = this.db.ref(path);
+      const ref = this.db.ref(fbPath(path));
       const h = snap => cb(snap.val());
       ref.on('value', h, err => { console.warn(path, err); toast('อ่านข้อมูลไม่ได้: ' + path); });
       return () => ref.off('value', h);
@@ -124,15 +126,15 @@ const Store = {
     return () => { this.subs = this.subs.filter(x => x !== sub); };
   },
   async set(path, val) {
-    if (this.mode === 'firebase') return this.db.ref(path).set(val);
+    if (this.mode === 'firebase') return this.db.ref(fbPath(path)).set(val);
     this._setNode(path, val); this._persist(); this._notify(path);
   },
   async update(path, obj) {
-    if (this.mode === 'firebase') return this.db.ref(path).update(obj);
+    if (this.mode === 'firebase') return this.db.ref(fbPath(path)).update(obj);
     Object.keys(obj).forEach(k => this._setNode(path + '/' + k, obj[k])); this._persist(); this._notify(path);
   },
   async push(path, val) {
-    if (this.mode === 'firebase') return this.db.ref(path).push(val);
+    if (this.mode === 'firebase') return this.db.ref(fbPath(path)).push(val);
     const id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     return this.set(path + '/' + id, val);
   }
