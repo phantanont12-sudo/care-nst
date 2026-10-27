@@ -165,7 +165,8 @@ function soldierList() {
 }
 function squads() { return [...new Set(soldierList().map(s => s.squad).filter(v => v !== '' && v != null))].sort((a, b) => (+a) - (+b)); }
 
-/* ── วันนี้ร้อนไหม (ใช้กับเกณฑ์ BMI ใน 4 สัปดาห์แรก) ── */
+/* ── วันนี้ร้อนไหม (ใช้กับเกณฑ์ BMI ตลอด 8 สัปดาห์ของการฝึก ตามที่หน่วยกำหนด) ── */
+const HOT_WEEKS = 8;
 function hotInfo() {
   let maxHI = null, maxT = null, at = null;
   Object.entries(S.heat || {}).forEach(([slot, r]) => {
@@ -203,8 +204,8 @@ function statusOf(s) {
     }
   });
   const w = weekOf(S.date), b = bmiOf(s);
-  if (w && w <= 4 && hotInfo().hot && ((b != null && b > 30) || (+s.w > 100))) {
-    lv = 3; why.push('BMI>30 / น้ำหนัก>100 กก. ช่วงอากาศร้อน 4 สัปดาห์แรก: งดฝึก อาบน้ำเพิ่ม');
+  if (w && w <= HOT_WEEKS && hotInfo().hot && ((b != null && b >= 30) || (+s.w >= 100))) {
+    lv = 3; why.push('BMI ≥30 / น้ำหนัก ≥100 กก. ช่วงอากาศร้อน: งดฝึก งดซ่อมวินัย อาบน้ำเพิ่ม');
   }
   return { lv, why, away };
 }
@@ -309,7 +310,7 @@ function viewDash() {
   return `
   <div class="page-h"><div><h1>ภาพรวม ${thaiDate(S.date, true)}</h1><div class="muted small">${S.date === todayStr() ? 'วันนี้' : 'ดูย้อนหลัง'} · อัปเดตอัตโนมัติ</div></div></div>
   ${missing.map(rd => `<div class="alert warn"><div><b>ยังกรอกสุขภาพรอบ ${rl(rd)} น. ไม่ครบ</b>กรอกแล้ว ${doneBy(rd)}/${list.length} นาย <button class="btn sm" data-act="goHealth" data-r="${rd}" style="margin-left:6px">ไปกรอก</button></div></div>`).join('')}
-  ${hot.hot && w && w <= 4 ? `<div class="alert bad" style="margin-top:8px"><div><b>อากาศร้อนเกินเกณฑ์ (สัปดาห์ที่ ${w})</b>ดัชนีความร้อนสูงสุด ${hot.maxHI ?? '-'} / อุณหภูมิ ${hot.maxT ?? '-'}°C: ผู้ที่ BMI>30 หรือน้ำหนัก>100 กก. งดฝึก งดซ่อมวินัย อาบน้ำเพิ่มหลังอาหารกลางวันและก่อนออกกำลังกายเย็น</div></div>` : ''}
+  ${hot.hot && w && w <= HOT_WEEKS ? `<div class="alert bad" style="margin-top:8px"><div><b>อากาศร้อนเกินเกณฑ์ (สัปดาห์ที่ ${w})</b>ดัชนีความร้อนสูงสุด ${hot.maxHI ?? '-'} / อุณหภูมิ ${hot.maxT ?? '-'}°C: ผู้ที่ BMI ≥30 หรือน้ำหนัก ≥100 กก. งดฝึก งดซ่อมวินัย อาบน้ำเพิ่มหลังอาหารกลางวันและก่อนออกกำลังกายเย็น</div></div>` : ''}
   <div class="grid g-stats" style="margin-top:12px">
     <div class="card stat"><div class="k">ยอดทหารใหม่</div><div class="v num">${list.length}</div><div class="s">${squads().length} หมู่ฝึก</div></div>
     <div class="card stat ${c3.length ? 'bad' : 'ok'}"><div class="k">งดฝึก</div><div class="v num">${c3.length}</div><div class="s">ห้ามลงโทษเด็ดขาด</div></div>
@@ -405,7 +406,7 @@ function viewHeat() {
   <div class="card" style="margin-top:16px"><h2 style="margin-bottom:8px">ตารางธงสี (คำแนะนำการฝึกทหารใหม่ ปีงบ 70)</h2>
     <div style="overflow-x:auto"><table class="ftable"><thead><tr><th>ธง</th><th>ดัชนีความร้อน</th><th>ดื่มน้ำ</th><th>ฝึก/พัก</th><th>หมายเหตุ</th></tr></thead>
     <tbody>${FLAGS.map(f => `<tr><td><span class="row" style="gap:6px"><i class="flagdot fl-${f.k}"></i>${f.n}</span></td><td>${f.range}</td><td>${f.water}</td><td>${f.wr}</td><td>${f.note || '-'}</td></tr>`).join('')}</tbody></table></div>
-    <p class="tiny muted" style="margin:8px 0 0">ช่วง 4 สัปดาห์แรก ถ้าอุณหภูมิเกิน 37°C หรือดัชนีเกิน 39 ผู้ที่ BMI>30 / น้ำหนัก>100 กก. งดฝึก ระบบจะติดป้ายให้อัตโนมัติ</p></div>`;
+    <p class="tiny muted" style="margin:8px 0 0">ตลอด 8 สัปดาห์ของการฝึก ถ้าอุณหภูมิเกิน 37°C หรือดัชนีเกิน 39 ผู้ที่ BMI ≥30 / น้ำหนัก ≥100 กก. งดฝึก ระบบจะติดป้ายให้อัตโนมัติ</p></div>`;
 }
 
 /* ════════════════ หน้า: ทะเบียนทหารใหม่ ════════════════ */
