@@ -22,7 +22,10 @@ const RISK = {
   red:    { n: 'แดง',    lv: 3 }
 };
 const LV_LABEL = ['ปกติ', 'เฝ้าระวัง', 'ลดการฝึก', 'งดฝึก'];
-const ALL_ROUNDS = ['0730', '1230', '2100'];
+// รอบคัดกรองตามมาตรการ พบ. ผลัด 2/69: เช้า 05.00–08.00 · พักกลางวัน 12.00–13.00 · ก่อนนอน 18.00–19.00
+const ALL_ROUNDS = ['0500', '1200', '1800'];
+const ROUND_LABEL = { '0500': '05.00–08.00', '1200': '12.00–13.00', '1800': '18.00–19.00' };
+const ROUND_END = { '0500': '0800', '1200': '1300', '1800': '1900' };
 const HEAT_SLOTS = ['0800', '1000', '1300', '1500', '1700'];
 const DORM_SLOTS = ['1900', '2100', '2200'];
 const URINE = ['ใส', 'เหลืองอ่อน', 'เหลือง', 'เหลืองเข้ม', 'น้ำตาล'];
@@ -155,7 +158,8 @@ let dateSubs = [], baseSubs = [];
 
 function can(perm) { const r = ROLES[S.me && S.me.role]; return !!(r && r[perm]); }
 function punishLimit() { const r = ROLES[S.me && S.me.role]; return r ? r.punish : 0; }
-function rounds() { const r = S.settings.rounds; return (Array.isArray(r) && r.length) ? r.slice().sort() : ['0730', '1230']; }
+function rounds() { const r = (Array.isArray(S.settings.rounds) ? S.settings.rounds : []).filter(x => ALL_ROUNDS.includes(x)); return r.length ? r.slice().sort() : ALL_ROUNDS.slice(); }
+const rl = r => ROUND_LABEL[r] || hm(r);
 function soldierList() {
   return Object.entries(S.soldiers || {}).map(([id, s]) => Object.assign({ id }, s)).sort((a, b) => (+a.no || 0) - (+b.no || 0));
 }
@@ -190,12 +194,12 @@ function statusOf(s) {
     if (rec.away) { away = true; return; }
     const t = num(rec.t), u = num(rec.u);
     if (t != null) {
-      if (t > 37.2) { lv = 3; why.push(`ไข้ ${t}° (${hm(rd)}) งดฝึก นำส่ง รพ.`); }
-      else if (t >= 36.8) { lv = Math.max(lv, 2); why.push(`${t}° (${hm(rd)}) ดื่มน้ำ เช็ดตัว วัดซ้ำ 30 นาที`); }
+      if (t > 37.2) { lv = 3; why.push(`ไข้ ${t}° (${rl(rd)}) งดฝึก นำส่ง รพ.`); }
+      else if (t >= 36.8) { lv = Math.max(lv, 2); why.push(`${t}° (${rl(rd)}) ดื่มน้ำ เช็ดตัว วัดซ้ำ 30 นาที`); }
     }
     if (u != null) {
-      if (u >= 4) { lv = 3; why.push(`ปัสสาวะสี 4 อันตราย (${hm(rd)}) งดฝึก พบแพทย์ทันที`); }
-      else if (u === 3) { lv = 3; why.push(`ปัสสาวะสี 3 อันตราย (${hm(rd)}) งดฝึก ดื่มน้ำ แจ้งเสนารักษ์`); }
+      if (u >= 4) { lv = 3; why.push(`ปัสสาวะสี 4 อันตราย (${rl(rd)}) งดฝึก พบแพทย์ทันที`); }
+      else if (u === 3) { lv = 3; why.push(`ปัสสาวะสี 3 อันตราย (${rl(rd)}) งดฝึก ดื่มน้ำ แจ้งเสนารักษ์`); }
     }
   });
   const w = weekOf(S.date), b = bmiOf(s);
@@ -300,11 +304,11 @@ function viewDash() {
   const pToday = Object.values(S.punish || {}).filter(p => p.date === S.date).length;
   const dormMax = Math.max(...DORM_SLOTS.map(k => slotHI(S.dorm[k])).filter(v => v != null), -Infinity);
   const nowS = nowHM().replace(':', '');
-  const missing = S.date === todayStr() ? rds.filter(rd => rd <= nowS && doneBy(rd) < list.length) : [];
+  const missing = S.date === todayStr() ? rds.filter(rd => (ROUND_END[rd] || rd) <= nowS && doneBy(rd) < list.length) : [];
 
   return `
   <div class="page-h"><div><h1>ภาพรวม ${thaiDate(S.date, true)}</h1><div class="muted small">${S.date === todayStr() ? 'วันนี้' : 'ดูย้อนหลัง'} · อัปเดตอัตโนมัติ</div></div></div>
-  ${missing.map(rd => `<div class="alert warn"><div><b>ยังกรอกสุขภาพรอบ ${hm(rd)} น. ไม่ครบ</b>กรอกแล้ว ${doneBy(rd)}/${list.length} นาย <button class="btn sm" data-act="goHealth" data-r="${rd}" style="margin-left:6px">ไปกรอก</button></div></div>`).join('')}
+  ${missing.map(rd => `<div class="alert warn"><div><b>ยังกรอกสุขภาพรอบ ${rl(rd)} น. ไม่ครบ</b>กรอกแล้ว ${doneBy(rd)}/${list.length} นาย <button class="btn sm" data-act="goHealth" data-r="${rd}" style="margin-left:6px">ไปกรอก</button></div></div>`).join('')}
   ${hot.hot && w && w <= 4 ? `<div class="alert bad" style="margin-top:8px"><div><b>อากาศร้อนเกินเกณฑ์ (สัปดาห์ที่ ${w})</b>ดัชนีความร้อนสูงสุด ${hot.maxHI ?? '-'} / อุณหภูมิ ${hot.maxT ?? '-'}°C: ผู้ที่ BMI>30 หรือน้ำหนัก>100 กก. งดฝึก งดซ่อมวินัย อาบน้ำเพิ่มหลังอาหารกลางวันและก่อนออกกำลังกายเย็น</div></div>` : ''}
   <div class="grid g-stats" style="margin-top:12px">
     <div class="card stat"><div class="k">ยอดทหารใหม่</div><div class="v num">${list.length}</div><div class="s">${squads().length} หมู่ฝึก</div></div>
@@ -321,7 +325,7 @@ function viewDash() {
     </div>
     <div class="card">
       <div class="card-h"><h2>ความคืบหน้าการกรอก</h2></div>
-      ${rds.map(rd => { const d = doneBy(rd); return `<div style="margin-bottom:12px"><div class="row" style="justify-content:space-between"><span>รอบ ${hm(rd)} น.</span><span class="num small muted">${d}/${list.length}</span></div><div class="progress"><i style="width:${list.length ? d / list.length * 100 : 0}%"></i></div></div>`; }).join('')}
+      ${rds.map(rd => { const d = doneBy(rd); return `<div style="margin-bottom:12px"><div class="row" style="justify-content:space-between"><span>รอบ ${rl(rd)} น.</span><span class="num small muted">${d}/${list.length}</span></div><div class="progress"><i style="width:${list.length ? d / list.length * 100 : 0}%"></i></div></div>`; }).join('')}
       <hr class="sep">
       <dl class="kv">
         <dt>ดัชนีความร้อนสูงสุด</dt><dd>${hot.maxHI != null ? `${hot.maxHI} (${flagOf(hot.maxHI).n}) ${hm(hot.at)} น.` : '-'}</dd>
@@ -345,7 +349,7 @@ function viewHealth() {
   const done = list.filter(s => rec(s.id).t != null || rec(s.id).away).length;
   return `
   <div class="page-h"><div><h1>สุขภาพประจำวัน</h1><div class="muted small">อุณหภูมิร่างกาย + สีปัสสาวะ · บันทึกทันทีที่กรอก</div></div>
-    <div class="seg" role="tablist">${rds.map(r => `<button data-act="round" data-r="${r}" class="${r === rd ? 'on' : ''}">${hm(r)} น.</button>`).join('')}</div></div>
+    <div class="seg" role="tablist">${rds.map(r => `<button data-act="round" data-r="${r}" class="${r === rd ? 'on' : ''}">${rl(r)} น.</button>`).join('')}</div></div>
   <div class="card" style="padding:12px;margin-bottom:12px">
     <div class="row" style="justify-content:space-between;margin-bottom:8px"><span class="small">กรอกแล้ว <b class="num">${done}/${list.length}</b> นาย</span><span class="tiny muted">36.8–37.2 = เหลือง วัดซ้ำใน 30 นาที · เกิน 37.2 = งดฝึก นำส่ง รพ. · ปัสสาวะ 3–4 = งดฝึก</span></div>
     <div class="progress"><i style="width:${list.length ? done / list.length * 100 : 0}%"></i></div>
@@ -432,7 +436,7 @@ function soldierModal(id) {
   S.modal = () => `<div class="ov" data-act="closeOv"><div class="sheet" role="dialog" aria-modal="true" aria-label="ข้อมูลทหารใหม่">
     <div class="sheet-h"><h2>${id ? esc(fullName(s)) : 'เพิ่มทหารใหม่'}</h2><button class="x" data-act="close" aria-label="ปิด">×</button></div>
     ${st ? `<div class="alert ${st.lv === 3 ? 'bad' : st.lv === 2 ? 'warn' : 'ok'}" style="margin-bottom:12px"><div><b>วันนี้: ${LV_LABEL[st.lv]}</b>${esc(st.why.join(' · ') || 'ไม่มีข้อสังเกต')}</div></div>
-      <div class="small muted" style="margin-bottom:12px">${rounds().map(rd => { const r = (S.health[rd] || {})[id] || {}; return `${hm(rd)} น.: ${r.away ? 'ไม่อยู่' : (r.t != null ? r.t + '°' : '-') + ' / ปัสสาวะ ' + (r.u != null ? r.u : '-')}`; }).join(' · ')}</div>` : ''}
+      <div class="small muted" style="margin-bottom:12px">${rounds().map(rd => { const r = (S.health[rd] || {})[id] || {}; return `${rl(rd)} น.: ${r.away ? 'ไม่อยู่' : (r.t != null ? r.t + '°' : '-') + ' / ปัสสาวะ ' + (r.u != null ? r.u : '-')}`; }).join(' · ')}</div>` : ''}
     <form data-act="saveSoldier" data-id="${id || ''}">
       <div class="form-grid cols-4">
         <div class="field"><label>ลำดับ</label><input class="input" name="no" inputmode="numeric" value="${esc(s.no)}" required ${admin ? '' : 'disabled'}></div>
@@ -532,7 +536,7 @@ function reportText() {
   L.push(`ดัชนีความร้อนสูงสุด: ${hot.maxHI != null ? `${hot.maxHI} (${flagOf(hot.maxHI).n}) เวลา ${hm(hot.at)} น.` : 'ไม่ได้บันทึก'}`);
   L.push(`โรงนอนสูงสุด: ${isFinite(dmax) ? dmax + (dmax > 33 ? ' (เกิน 33)' : '') : 'ไม่ได้บันทึก'}`);
   L.push(`การลงโทษ: ${pun.length} ครั้ง`);
-  L.push(`การกรอกสุขภาพ: ${rounds().map(rd => `${hm(rd)} น. ${list.filter(s => S.health[rd] && S.health[rd][s.id]).length}/${list.length}`).join(' · ')}`);
+  L.push(`การกรอกสุขภาพ: ${rounds().map(rd => `${rl(rd)} น. ${list.filter(s => S.health[rd] && S.health[rd][s.id]).length}/${list.length}`).join(' · ')}`);
   return L.join('\n');
 }
 function viewReport() {
@@ -557,8 +561,8 @@ function viewSettings() {
         <div class="field full"><label>ชื่อหน่วยฝึก</label><input class="input" name="unit" value="${esc(st.unit || '')}" placeholder="หน่วยฝึกทหารใหม่ ช.1 พัน.52" ${admin ? '' : 'disabled'}></div>
         <div class="field"><label>ผลัด</label><input class="input" name="cohort" value="${esc(st.cohort || '')}" placeholder="2/69" ${admin ? '' : 'disabled'}></div>
         <div class="field"><label>วันเริ่มฝึก</label><input class="input" type="date" name="start" value="${esc(st.start || '')}" ${admin ? '' : 'disabled'}></div>
-        <div class="field full"><label>รอบตรวจอุณหภูมิ/สีปัสสาวะ (ผลัด 1: 3 เวลา · ผลัด 2: 2 เวลา)</label>
-          <div class="row">${ALL_ROUNDS.map(r => `<label class="check" style="padding:4px 10px 4px 0"><input type="checkbox" name="rounds" value="${r}" ${rds.includes(r) ? 'checked' : ''} ${admin ? '' : 'disabled'}><span>${hm(r)} น.</span></label>`).join('')}</div></div>
+        <div class="field full"><label>รอบคัดกรองอุณหภูมิ/สีปัสสาวะ (มาตรการ พบ. ผลัด 2/69: 3 เวลา)</label>
+          <div class="row">${ALL_ROUNDS.map(r => `<label class="check" style="padding:4px 10px 4px 0"><input type="checkbox" name="rounds" value="${r}" ${rds.includes(r) ? 'checked' : ''} ${admin ? '' : 'disabled'}><span>${rl(r)} น.</span></label>`).join('')}</div></div>
       </div>
       ${admin ? '<button class="btn primary" style="margin-top:12px">บันทึก</button>' : ''}
     </form>
@@ -643,7 +647,7 @@ function exportReport() {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(reportText().split('\n').map(l => [l])), 'สรุป');
   const rds = rounds();
-  const hrows = [['ลำดับ', 'ยศ ชื่อ สกุล', 'หมู่', 'กลุ่มเสี่ยง'].concat(...rds.map(r => [`${hm(r)} อุณหภูมิ`, `${hm(r)} ปัสสาวะ`])).concat(['สถานะ', 'ข้อสังเกต'])];
+  const hrows = [['ลำดับ', 'ยศ ชื่อ สกุล', 'หมู่', 'กลุ่มเสี่ยง'].concat(...rds.map(r => [`${rl(r)} อุณหภูมิ`, `${rl(r)} ปัสสาวะ`])).concat(['สถานะ', 'ข้อสังเกต'])];
   soldierList().forEach(s => { const st = statusOf(s); hrows.push([s.no, fullName(s), s.squad, RISK[s.risk || 'none'].n].concat(...rds.map(r => { const x = (S.health[r] || {})[s.id] || {}; return x.away ? ['ไม่อยู่', ''] : [x.t ?? '', x.u ?? '']; })).concat([LV_LABEL[st.lv], st.why.join(' / ')])); });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(hrows), 'สุขภาพ');
   const heat = [['ที่', 'เวลา', 'อุณหภูมิ', 'ความชื้น', 'ดัชนี', 'ธง/ผล']];
@@ -823,10 +827,10 @@ function seedDemo() {
     sol['n' + no] = { no, rank: 'พลฯ', fname: n, lname: 'สมมติ', nick: '', squad: Math.floor(i / 8) + 1, age: 18 + (i % 7), h, w,
       risk: i === 3 ? 'red' : (i === 9 || i === 17) ? 'yellow' : (i % 6 === 0) ? 'green' : 'none', buddy: 'B' + (Math.floor(i / 3) + 1) };
   });
-  const health = {}; health[t] = { '0730': {} };
-  Object.keys(sol).forEach((id, i) => { if (i < 20) health[t]['0730'][id] = { t: i === 7 ? 37.6 : i === 14 ? 37.0 : Math.round((36.2 + (i % 5) / 10) * 10) / 10, u: i === 19 ? 4 : i === 2 ? 3 : i % 3, by: 'demo', byName: 'ตัวอย่าง', at: Date.now() }; });
+  const health = {}; health[t] = { '0500': {} };
+  Object.keys(sol).forEach((id, i) => { if (i < 20) health[t]['0500'][id] = { t: i === 7 ? 37.6 : i === 14 ? 37.0 : Math.round((36.2 + (i % 5) / 10) * 10) / 10, u: i === 19 ? 4 : i === 2 ? 3 : i % 3, by: 'demo', byName: 'ตัวอย่าง', at: Date.now() }; });
   Store.tree = {
-    settings: { unit: 'หน่วยฝึกทหารใหม่ (ตัวอย่าง)', cohort: '2/69', start: addDays(t, -10), rounds: ['0730', '1230'] },
+    settings: { unit: 'หน่วยฝึกทหารใหม่ (ตัวอย่าง)', cohort: '2/69', start: addDays(t, -10), rounds: ALL_ROUNDS.slice() },
     soldiers: sol, health,
     heat: { [t]: { '0800': { temp: 30, rh: 75 }, '1000': { temp: 34, rh: 60 } } },
     dorm: {}, punish: {}
