@@ -273,7 +273,7 @@ function render() {
       ${MOBILE_NAV.map(k => { const n = NAV.find(x => x.k === k); return `<button data-act="go" data-v="${k}" class="${S.view === k ? 'on' : ''}">${ic(k)}<span class="navbadge" ${k === 'dash' ? `data-n="${alerts}"` : ''}>${n.n}</span></button>`; }).join('')}
       <button data-act="more" class="${MOBILE_NAV.includes(S.view) ? '' : 'on'}">${ic('more')}<span>เพิ่มเติม</span></button>
     </nav>
-  </div>${S.modal ? S.modal() : ''}${S.toast ? `<div class="toast" role="status">${esc(S.toast)}</div>` : ''}`;
+  </div>${heatBanner()}${S.modal ? S.modal() : ''}${S.toast ? `<div class="toast" role="status">${esc(S.toast)}</div>` : ''}`;
   restore();
 
   function restore() {
@@ -309,7 +309,8 @@ function viewDash() {
   const missing = S.date === todayStr() ? rds.filter(rd => (ROUND_END[rd] || rd) <= nowS && doneBy(rd) < list.length) : [];
 
   return `
-  <div class="page-h"><div><h1>ภาพรวม ${thaiDate(S.date, true)}</h1><div class="muted small">${S.date === todayStr() ? 'วันนี้' : 'ดูย้อนหลัง'} · อัปเดตอัตโนมัติ</div></div></div>
+  <div class="page-h"><div><h1>ภาพรวม ${thaiDate(S.date, true)}</h1><div class="muted small">${S.date === todayStr() ? 'วันนี้' : 'ดูย้อนหลัง'} · อัปเดตอัตโนมัติ</div></div><button class="btn" data-act="brief">สรุปเช้านี้</button></div>
+  ${(() => { const B = briefData(); return `<div class="card" style="padding:12px 14px;margin-bottom:12px"><div class="row" style="gap:16px;flex-wrap:wrap"><span class="pill ${B.docs.length ? 'lv3' : 'lv1'}">พบแพทย์ ${B.docs.length}</span>${[3, 2, 1, 0].map(lv => `<span class="row" style="gap:6px;display:inline-flex"><i class="rdot rd-${LV_COLOR[lv].k}"></i>${LV_COLOR[lv].n} <b class="num">${B.groups[lv].length}</b></span>`).join('')}<span class="small muted">ไม่อยู่ ${B.away.length}</span></div></div>`; })()}
   ${missing.map(rd => `<div class="alert warn"><div><b>ยังกรอกสุขภาพรอบ ${rl(rd)} น. ไม่ครบ</b>กรอกแล้ว ${doneBy(rd)}/${list.length} นาย <button class="btn sm" data-act="goHealth" data-r="${rd}" style="margin-left:6px">ไปกรอก</button></div></div>`).join('')}
   ${hot.hot && w && w <= HOT_WEEKS ? `<div class="alert bad" style="margin-top:8px"><div><b>อากาศร้อนเกินเกณฑ์ (สัปดาห์ที่ ${w})</b>ดัชนีความร้อนสูงสุด ${hot.maxHI ?? '-'} / อุณหภูมิ ${hot.maxT ?? '-'}°C: ผู้ที่ BMI ≥30 หรือน้ำหนัก ≥100 กก. งดฝึก งดซ่อมวินัย อาบน้ำเพิ่มหลังอาหารกลางวันและก่อนออกกำลังกายเย็น</div></div>` : ''}
   <div class="grid g-stats" style="margin-top:12px">
@@ -372,7 +373,7 @@ function viewHealth() {
           ${r.away ? '<span class="pill lv0">ไม่อยู่</span>' : `<input class="input tin" id="${tid}" data-act="temp" data-id="${s.id}" inputmode="decimal" placeholder="°C" value="${esc(tv)}" ${canEdit ? '' : 'disabled'} aria-label="อุณหภูมิ ${esc(shortName(s))}">
           <div class="urine" role="group" aria-label="สีปัสสาวะ">${URINE.map((u, i) => `<button class="u${i} ${num(r.u) === i ? 'on' : ''}" data-act="urine" data-id="${s.id}" data-u="${i}" title="${u}" ${canEdit ? '' : 'disabled'}>${i}</button>`).join('')}</div>`}
         </div>
-        <div class="row" style="justify-content:flex-end;gap:6px"><span class="pill lv${st.lv}">${LV_LABEL[st.lv]}</span>${canEdit ? `<button class="btn sm" data-act="away" data-id="${s.id}">${r.away ? 'กลับมาแล้ว' : 'ไม่อยู่'}</button>` : ''}</div>
+        <div class="row" style="justify-content:flex-end;gap:6px"><span class="pill lv${st.lv}">${LV_LABEL[st.lv]}</span>${canEdit ? `<button class="btn sm ${r.doc ? 'danger' : ''}" data-act="doc" data-id="${s.id}" aria-pressed="${r.doc ? 'true' : 'false'}">${r.doc ? '✓ พบแพทย์' : 'พบแพทย์'}</button><button class="btn sm" data-act="away" data-id="${s.id}">${r.away ? 'กลับมาแล้ว' : 'ไม่อยู่'}</button>` : ''}</div>
       </div>`;
     }).join('') || '<div class="card empty">ไม่พบรายชื่อ</div>'}
   </div>
@@ -581,6 +582,7 @@ function viewSettings() {
   </div>
   <div class="card">
     <h2 style="margin-bottom:12px">บัญชีของฉัน</h2>
+    <div class="alert ${('Notification' in window) && Notification.permission === 'granted' ? 'ok' : 'info'}" style="margin-bottom:12px"><div class="small" style="flex:1"><b>แจ้งเตือนบนเครื่องนี้</b>${('Notification' in window) && Notification.permission === 'granted' ? 'เปิดแล้ว · เด้งเมื่อธงความร้อนเปลี่ยนและสรุปเช้านี้ (ขณะเปิดแอปไว้)' : 'กดเปิดเพื่อให้เด้งแจ้งเตือนเมื่อธงความร้อนเปลี่ยนและสรุปเช้านี้'}</div>${('Notification' in window) && Notification.permission !== 'granted' ? '<button class="btn sm" data-act="notifyOn">เปิดการแจ้งเตือน</button>' : ''}</div>
     <dl class="kv"><dt>ชื่อ</dt><dd>${esc(S.me.name || '-')}</dd><dt>บทบาท</dt><dd>${esc(ROLES[S.me.role].name)}</dd><dt>ระบบ</dt><dd>${Store.mode === 'demo' ? 'โหมดทดลอง (ในเครื่อง)' : 'Firebase'}</dd></dl>
     <hr class="sep">
     <div class="field"><label>ธีม</label><div class="seg">${[['auto', 'ตามเครื่อง'], ['light', 'สว่าง'], ['dark', 'มืด']].map(([k, n]) => `<button data-act="theme" data-t="${k}" class="${(localGet('carenst_theme') || 'auto') === k ? 'on' : ''}">${n}</button>`).join('')}</div></div>
@@ -809,6 +811,92 @@ async function intakeConfirm() {
   S.modal = null; S.intake = null; toast(`นำเข้า ${recs.length} นายแล้ว`);
 }
 
+
+/* ════════════════ แจ้งเตือน: สรุปเช้านี้ + ธงความร้อนเปลี่ยน ════════════════ */
+const LV_COLOR = [
+  { k: 'none', n: 'ไม่มีสี', d: 'ฝึกปกติ' },
+  { k: 'green', n: 'เขียว', d: 'ฝึกปกติ เฝ้าระวังพิเศษ' },
+  { k: 'yellow', n: 'เหลือง', d: 'ลดการฝึก แยกกลุ่มฝึก' },
+  { k: 'red', n: 'แดง', d: 'งดฝึก งดออกกำลังทุกชนิด' }
+];
+function docNeed(s) {
+  const why = [];
+  rounds().forEach(rd => {
+    const r = (S.health[rd] || {})[s.id]; if (!r) return;
+    if (r.doc) why.push('ครูส่งพบแพทย์');
+    if (num(r.t) != null && num(r.t) > 37.2) why.push(`ไข้ ${r.t}°`);
+    if (num(r.u) >= 4) why.push('ปัสสาวะสี 4');
+  });
+  return [...new Set(why)];
+}
+function briefData() {
+  const list = soldierList();
+  const st = list.map(s => Object.assign({ s }, statusOf(s)));
+  const groups = [0, 1, 2, 3].map(lv => st.filter(x => !x.away && x.lv === lv));
+  const docs = list.map(s => ({ s, why: docNeed(s) })).filter(x => x.why.length);
+  const morning = rounds()[0]; const doneM = list.filter(s => (S.health[morning] || {})[s.id]).length;
+  return { list, groups, docs, away: st.filter(x => x.away), morning, doneM, flag: currentFlag() };
+}
+function briefModal() {
+  const B = briefData(); const n = B.list.length;
+  return `<div class="ov" data-act="closeOv"><div class="sheet" role="dialog" aria-modal="true" aria-label="สรุปเช้านี้">
+    <div class="sheet-h"><div><h2>สรุปเช้านี้</h2><div class="tiny muted">${thaiDate(S.date, true)} · รอบ ${rl(B.morning)} น. กรอกแล้ว ${B.doneM}/${n} นาย</div></div><button class="x" data-act="close" aria-label="ปิด">×</button></div>
+    <div class="grid" style="grid-template-columns:repeat(2,1fr);gap:10px">
+      <div class="card stat ${B.docs.length ? 'bad' : 'ok'}"><div class="k">ส่งพบแพทย์</div><div class="v num">${B.docs.length}</div><div class="s">นาย</div></div>
+      <div class="card stat"><div class="k">ยอดทั้งหมด</div><div class="v num">${n}</div><div class="s">ไม่อยู่ ${B.away.length} นาย</div></div>
+    </div>
+    ${B.docs.length ? `<div class="alist" style="margin-top:10px">${B.docs.map(x => `<div class="aitem"><span class="pill lv3">พบแพทย์</span><div style="min-width:0"><div><b>${esc(x.s.no)}.</b> ${esc(shortName(x.s))} <span class="muted small">หมู่ ${esc(x.s.squad)}</span></div><div class="why">${esc(x.why.join(' · '))}</div></div></div>`).join('')}</div>` : ''}
+    <h3 style="margin:16px 0 8px">การฝึกแยกตามสี</h3>
+    <div class="alist">${[3, 2, 1, 0].map(lv => { const g = B.groups[lv]; const c = LV_COLOR[lv]; return `<div class="aitem" style="align-items:flex-start"><i class="rdot rd-${c.k}" style="margin-top:6px"></i><div style="flex:1;min-width:0"><div class="row" style="justify-content:space-between"><b>${c.n} · ${c.d}</b><b class="num">${g.length} นาย</b></div>${lv >= 2 && g.length ? `<div class="why">${g.map(x => esc(x.s.no + '. ' + shortName(x.s))).join(', ')}</div>` : ''}</div></div>`; }).join('')}</div>
+    ${B.flag ? `<div class="alert ${B.flag.flag.k === 'red' || B.flag.flag.k === 'black' ? 'bad' : B.flag.flag.k === 'yellow' ? 'warn' : 'info'}" style="margin-top:12px"><div><b>${B.flag.flag.n} (ดัชนี ${B.flag.hi} · ${hm(B.flag.slot)} น.)</b>ดื่มน้ำ ${B.flag.flag.water} · ${B.flag.flag.wr}${B.flag.flag.note ? ' · ' + B.flag.flag.note : ''}</div></div>` : '<p class="small muted" style="margin-top:12px">ยังไม่ได้วัดดัชนีความร้อนวันนี้</p>'}
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-act="copyBrief">${ic('copy')}คัดลอกส่งไลน์</button><button class="btn primary" data-act="close">รับทราบ</button></div>
+  </div></div>`;
+}
+function briefText() {
+  const B = briefData(); const L = [`สรุปเช้านี้ ${thaiDate(S.date, true)} · ${S.settings.unit || 'หน่วยฝึกทหารใหม่'}`];
+  L.push(`ยอด ${B.list.length} นาย · ไม่อยู่ ${B.away.length} นาย`);
+  L.push(`ส่งพบแพทย์ ${B.docs.length} นาย`); B.docs.forEach(x => L.push(`  - ${x.s.no}. ${shortName(x.s)} (${x.why.join(', ')})`));
+  L.push('การฝึกแยกตามสี:'); [3, 2, 1, 0].forEach(lv => L.push(`  ${LV_COLOR[lv].n} (${LV_COLOR[lv].d}) ${B.groups[lv].length} นาย`));
+  if (B.flag) L.push(`ธงความร้อน: ${B.flag.flag.n} ดัชนี ${B.flag.hi} (${hm(B.flag.slot)} น.)`);
+  return L.join('\n');
+}
+function notifyDevice(title, body) {
+  try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) {}
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const opt = { body, icon: 'icon-192.png', badge: 'icon-192.png', tag: title };
+  if (navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.ready.then(r => r.showNotification(title, opt)).catch(() => { try { new Notification(title, opt); } catch (e) {} });
+  else { try { new Notification(title, opt); } catch (e) {} }
+}
+function maybeBrief(force) {
+  if (!S.me || !ROLES[S.me.role] || S.date !== todayStr() || !soldierList().length || !S._hLoaded) return;
+  const t = nowHM(); if (!force && (t < '05:00' || t >= '12:00')) return;
+  const key = 'carenst_brief_' + todayStr();
+  if (!force && localGet(key)) return;
+  if (S.modal) return;
+  localSet(key, '1'); S.modal = briefModal; scheduleRender();
+  const B = briefData();
+  notifyDevice('สรุปเช้านี้', `พบแพทย์ ${B.docs.length} · แดง ${B.groups[3].length} · เหลือง ${B.groups[2].length} · เขียว ${B.groups[1].length} · ปกติ ${B.groups[0].length}`);
+}
+function checkHeatChange() {
+  if (S.date !== todayStr()) return;
+  const f = currentFlag(); if (!f) return;
+  const key = 'carenst_flag_' + S.date; const seen = localGet(key);
+  const sig = f.flag.k + '@' + f.slot;
+  if (seen === sig) return;
+  const prevK = seen ? seen.split('@')[0] : null;
+  localSet(key, sig);
+  if (!S._heatBase) { S._heatBase = true; if (!seen) return; }
+  if (prevK === f.flag.k) return;
+  S.heatAlert = { flag: f.flag, hi: f.hi, slot: f.slot, prev: prevK ? FLAGS.find(x => x.k === prevK) : null };
+  notifyDevice(`ธงความร้อนเปลี่ยนเป็น${f.flag.n}`, `ดัชนี ${f.hi} (${hm(f.slot)} น.) · ดื่มน้ำ ${f.flag.water} · ${f.flag.wr}${f.flag.note ? ' · ' + f.flag.note : ''}`);
+  scheduleRender();
+}
+function heatBanner() {
+  const a = S.heatAlert; if (!a) return '';
+  const tone = a.flag.k === 'red' || a.flag.k === 'black' ? 'bad' : a.flag.k === 'yellow' ? 'warn' : 'info';
+  return `<div class="popalert alert ${tone}" role="alert"><i class="fl fl-${a.flag.k}" style="width:34px;height:24px;flex:0 0 34px;border-radius:4px;border:1px solid rgba(0,0,0,.3)"></i><div style="flex:1;min-width:0"><b>ธงความร้อนเปลี่ยน${a.prev ? ` จาก${a.prev.n}` : ''} เป็น${a.flag.n}</b>ดัชนี ${a.hi} (${hm(a.slot)} น.) · ดื่มน้ำ ${a.flag.water} · ${a.flag.wr}${a.flag.note ? ' · <b style="display:inline">' + a.flag.note + '</b>' : ''}</div><button class="btn sm" data-act="heatOk">รับทราบ</button></div>`;
+}
+
 function exportReport() {
   if (!needXLSX()) return;
   const wb = XLSX.utils.book_new();
@@ -858,6 +946,11 @@ const actions = {
   round: el => { S.round = el.dataset.r; scheduleRender(); },
   squad: el => { S.squad = el.dataset.q; scheduleRender(); },
   urine: async el => { const id = el.dataset.id, u = +el.dataset.u; const cur = ((S.health[S.round] || {})[id] || {}).u; await Store.update(`health/${S.date}/${S.round}/${id}`, Object.assign({ u: cur === u ? null : u }, stamp())); if (u === 4 && cur !== 4) toast('สี 4 อันตราย: งดฝึก พบแพทย์ทันที'); else if (u === 3 && cur !== 3) toast('สี 3 อันตราย: งดฝึก ดื่มน้ำ แจ้งเสนารักษ์'); },
+  doc: async el => { const id = el.dataset.id; const cur = ((S.health[S.round] || {})[id] || {}).doc; await Store.update(`health/${S.date}/${S.round}/${id}`, Object.assign({ doc: cur ? null : true }, stamp())); if (!cur) toast(`ส่ง ${shortName(S.soldiers[id])} พบแพทย์`); },
+  brief: () => maybeBrief(true),
+  heatOk: () => { S.heatAlert = null; scheduleRender(); },
+  copyBrief: async () => { const t = briefText(); try { await navigator.clipboard.writeText(t); toast('คัดลอกแล้ว'); } catch (e) { toast('คัดลอกไม่ได้'); } },
+  notifyOn: async () => { if (!('Notification' in window)) return toast('เครื่องนี้ไม่รองรับการแจ้งเตือน'); const r = await Notification.requestPermission(); toast(r === 'granted' ? 'เปิดการแจ้งเตือนแล้ว' : 'ไม่ได้รับอนุญาต เปิดได้ที่การตั้งค่าเบราว์เซอร์'); if (r === 'granted') notifyDevice('CARE-NST', 'การแจ้งเตือนบนเครื่องนี้พร้อมใช้งาน'); scheduleRender(); },
   away: async el => { const id = el.dataset.id; const cur = ((S.health[S.round] || {})[id] || {}).away; await Store.update(`health/${S.date}/${S.round}/${id}`, Object.assign({ away: cur ? null : true }, stamp())); },
   soldier: el => soldierModal(el.dataset.id),
   reveal: el => { const id = el.dataset.id; S.reveal[id] = !S.reveal[id]; soldierModal(id); },
@@ -977,7 +1070,8 @@ function bindEvents() {
 /* ════════════════ การสมัครรับข้อมูล ════════════════ */
 function subscribeDate() {
   dateSubs.forEach(u => u()); dateSubs = [];
-  ['health', 'heat', 'dorm'].forEach(k => dateSubs.push(Store.on(`${k}/${S.date}`, v => { S[k] = v || {}; scheduleRender(); })));
+  S._hLoaded = false; S._heatBase = false;
+  ['health', 'heat', 'dorm'].forEach(k => dateSubs.push(Store.on(`${k}/${S.date}`, v => { S[k] = v || {}; if (k === 'health') { S._hLoaded = true; setTimeout(() => maybeBrief(false), 1200); } if (k === 'heat') checkHeatChange(); scheduleRender(); })));
 }
 function subscribeBase() {
   baseSubs.forEach(u => u()); baseSubs = [];
@@ -1016,7 +1110,7 @@ async function boot() {
   applyTheme(); bindEvents();
   // เปลี่ยนวันอัตโนมัติเมื่อข้ามเที่ยงคืน (ถ้ากำลังดูวันนี้) และอัปเดตเวลาที่ใช้ตรวจเกณฑ์
   S._lastToday = todayStr();
-  setInterval(() => { const t = todayStr(); if (S._lastToday !== t && S.date === S._lastToday) { S.date = t; subscribeDate(); } S._lastToday = t; if (S.view === 'punish' || S.view === 'dash') scheduleRender(); }, 60000);
+  setInterval(() => { const t = todayStr(); if (S._lastToday !== t && S.date === S._lastToday) { S.date = t; subscribeDate(); } S._lastToday = t; if (S.view === 'punish' || S.view === 'dash') scheduleRender(); if (nowHM() >= '08:00') maybeBrief(false); }, 60000);
   if ('serviceWorker' in navigator && location.protocol === 'https:') { navigator.serviceWorker.register('sw.js').catch(() => {}); }
   const cfg = window.FIREBASE_CONFIG;
   if (!cfg) {
