@@ -8,12 +8,12 @@
 
 /* ════════════════ ค่าคงที่ตามเกณฑ์ ════════════════ */
 const ROLES = {
-  trainer:    { name: 'ผู้ฝึก',              admin: true,  health: true,  punish: 12 },
-  commander:  { name: 'ผบ.หน่วยฝึก',         admin: true,  health: true,  punish: 0 },
-  nco:        { name: 'ครูนายสิบ',            admin: false, health: true,  punish: 2 },
-  instructor: { name: 'ครูทหารใหม่',          admin: false, health: true,  punish: 0 },
-  medic:      { name: 'เสนารักษ์',            admin: false, health: true,  punish: 0 },
-  viewer:     { name: 'ผู้บังคับบัญชา (ดูอย่างเดียว)', admin: false, health: false, punish: 0 }
+  trainer:    { name: 'ผู้ฝึก',              admin: true,  health: true,  punish: 12, priv: true },
+  commander:  { name: 'ผบ.หน่วยฝึก',         admin: true,  health: true,  punish: 0,  priv: true },
+  nco:        { name: 'ครูนายสิบ',            admin: false, health: true,  punish: 2,  priv: false },
+  instructor: { name: 'ครูทหารใหม่',          admin: false, health: true,  punish: 0,  priv: false },
+  medic:      { name: 'เสนารักษ์',            admin: false, health: true,  punish: 0,  priv: true },
+  viewer:     { name: 'ผู้บังคับบัญชา (ดูอย่างเดียว)', admin: false, health: false, punish: 0, priv: false }
 };
 const RISK = {
   none:   { n: 'ไม่มีสี', lv: 0 },
@@ -150,7 +150,7 @@ function loadScript(src) {
 
 /* ════════════════ สถานะแอป ════════════════ */
 const S = {
-  me: null, settings: {}, soldiers: {}, health: {}, heat: {}, dorm: {}, punish: {}, users: {},
+  me: null, settings: {}, soldiers: {}, priv: {}, reveal: {}, health: {}, heat: {}, dorm: {}, punish: {}, users: {},
   date: todayStr(), view: 'dash', round: null, squad: 'all', q: '', loginTab: 'login',
   punishScope: 'day', drafts: {}, P: { sid: '', moves: [], minutes: '', reason: '', explained: false, individual: false, open: false }
 };
@@ -432,6 +432,14 @@ function viewSoldiers() {
   <div class="cards-m only-m">${shown.map(s => { const st = statusOf(s); return `<div class="aitem" data-act="soldier" data-id="${s.id}" style="cursor:pointer"><span class="no num" style="font-weight:700;color:var(--muted);min-width:26px">${esc(s.no)}</span><i class="rdot rd-${esc(s.risk || 'none')}"></i><div style="flex:1;min-width:0"><div style="font-weight:600">${esc(shortName(s))}</div><div class="tiny muted">หมู่ ${esc(s.squad)} · อายุ ${esc(s.age || '-')} · BMI ${bmiOf(s) ?? '-'}</div></div><span class="pill lv${st.lv}">${st.away ? 'ไม่อยู่' : LV_LABEL[st.lv]}</span></div>`; }).join('')}</div>`}`;
 }
 
+function privBlock(id) {
+  const p = S.priv[id] || {}; const show = !!S.reveal[id];
+  const mask = v => !v ? '-' : (show ? esc(v) : esc(String(v).replace(/.(?=.{4})/g, '•')));
+  const row = (k, v) => `<dt>${k}</dt><dd style="font-weight:500;white-space:pre-wrap">${v}</dd>`;
+  return `<div class="field full"><div class="alert info" style="display:block"><div class="row" style="justify-content:space-between;margin-bottom:8px"><b>ข้อมูลส่วนบุคคล</b><span class="row tiny muted">เห็นเฉพาะผู้ฝึก ผบ.หน่วยฝึก เสนารักษ์ <button type="button" class="btn sm" data-act="reveal" data-id="${id}">${show ? 'ซ่อน' : 'แสดงทั้งหมด'}</button></span></div>
+    ${Object.keys(p).length ? `<dl class="kv">${row('เลขบัตรประชาชน', mask(p.cid))}${row('เบอร์โทร', mask(p.phone))}${row('ที่อยู่', show ? esc(p.addr || '-') : (p.addr ? '••••' : '-'))}${row('โรคประจำตัว', esc(p.disease || '-'))}${row('สารเสพติด', show ? esc([p.drug, p.urine && 'ผลปัสสาวะ: ' + p.urine].filter(Boolean).join(' · ') || '-') : '••••')}${row('สุขภาพจิต', show ? esc([p.psych, p.dep].filter(Boolean).join(' · ') || '-') : '••••')}</dl>` : '<div class="small muted">ยังไม่มีข้อมูล นำเข้าจากระบบกองพลเพื่อเติม</div>'}
+  </div></div>`;
+}
 function soldierModal(id) {
   const s = id ? Object.assign({ id }, S.soldiers[id]) : { no: (Math.max(0, ...soldierList().map(x => +x.no || 0)) + 1), rank: 'พลฯ', risk: 'none' };
   const admin = can('admin');
@@ -455,7 +463,8 @@ function soldierModal(id) {
         <div class="field full"><label>กลุ่มเสี่ยงจากการคัดกรองแรกรับ</label>
           <div class="seg">${Object.entries(RISK).map(([k, r]) => `<button type="button" data-act="riskPick" data-k="${k}" class="${(s.risk || 'none') === k ? 'on' : ''}" ${admin ? '' : 'disabled'}>${r.n}</button>`).join('')}</div>
           <input type="hidden" name="risk" value="${esc(s.risk || 'none')}">${s.riskWhy ? `<div class="tiny muted">เหตุผล: ${esc(s.riskWhy)}</div>` : ''}</div>
-        <div class="field full"><label>หมายเหตุ (อย่าใส่รายละเอียดโรค/จิตเวช)</label><input class="input" name="note" value="${esc(s.note || '')}" ${admin ? '' : 'disabled'}></div>
+        <div class="field full"><label>หมายเหตุ</label><input class="input" name="note" value="${esc(s.note || '')}" ${admin ? '' : 'disabled'}></div>
+        ${id && can('priv') ? privBlock(id) : ''}
       </div>
       ${admin ? `<div class="row" style="margin-top:16px;justify-content:space-between">${id ? `<button type="button" class="btn danger" data-act="delSoldier" data-id="${id}">ลบ</button>` : '<span></span>'}<button class="btn primary" type="submit">บันทึก</button></div>` : ''}
     </form></div></div>`;
@@ -703,6 +712,9 @@ function parseDivision(rows, fileName) {
     const get = j => { const k = C.col(j); return k >= 0 ? r[k] : ''; };
     const fname = String(get(2) || '').trim(); if (!fname) return;
     const a = analyzeIntake(get);
+    const tx = j => { const v = String(get(j) == null ? '' : get(j)).trim(); return v && v !== '-' ? v : ''; };
+    a.p = { cid: tx(5), phone: tx(39), addr: [tx(31) && 'บ้านเลขที่ ' + tx(31), tx(32) && 'หมู่ ' + tx(32), tx(33), tx(34), tx(35) && 'ต.' + tx(35), tx(36) && 'อ.' + tx(36), tx(37) && 'จ.' + tx(37), tx(38)].filter(Boolean).join(' '),
+      disease: tx(13), drug: tx(28), urine: tx(29), psych: tx(19), dep: tx(20) };
     out.push(Object.assign(a, {
       key: String(C.ref >= 0 ? r[C.ref] : '').trim() || 'row' + (i + 2),
       ref: String(C.ref >= 0 ? r[C.ref] : '').trim(),
@@ -739,17 +751,17 @@ function intakeModal() {
       <div class="card stat warn"><div class="k">เหลือง</div><div class="v num">${cnt('yellow')}</div><div class="s">ลดการฝึก</div></div>
       <div class="card stat ok"><div class="k">เขียว</div><div class="v num">${cnt('green')}</div><div class="s">เฝ้าระวังพิเศษ</div></div>
       <div class="card stat"><div class="k">ไม่มีสี</div><div class="v num">${cnt('none')}</div><div class="s">ฝึกปกติ</div></div>
-      <div class="card stat ${mh.length ? 'warn' : ''}"><div class="k">ติดตามสุขภาพจิต</div><div class="v num">${mh.length}</div><div class="s">ไม่บันทึกในระบบ</div></div>
+      <div class="card stat ${mh.length ? 'warn' : ''}"><div class="k">ติดตามสุขภาพจิต</div><div class="v num">${mh.length}</div><div class="s">ส่งเสนารักษ์</div></div>
     </div>
     <h3 style="margin-bottom:8px">ระบบเสนอสีกลุ่มเสี่ยง (${flagged.length} นาย) — ตรวจและแก้ได้ก่อนนำเข้า</h3>
     ${flagged.length ? `<div class="tbl-wrap" style="max-height:320px;overflow:auto"><table class="tbl"><thead><tr><th>ชื่อ</th><th>เหตุผล (เห็นเฉพาะตอนนำเข้า)</th><th>สี</th></tr></thead><tbody>
       ${flagged.map(x => `<tr><td>${esc(x.fname)} ${esc(x.lname)}</td><td style="white-space:normal;min-width:220px">${esc(x.why.join(' · ') || 'แก้ด้วยมือ')}</td><td><select class="input" data-act="inRisk" data-k="${esc(x.key)}" style="min-height:34px;padding:4px 8px;width:auto">${Object.entries(RISK).map(([k, r]) => `<option value="${k}" ${finalRisk(x) === k ? 'selected' : ''}>${r.n}</option>`).join('')}</select></td></tr>`).join('')}
     </tbody></table></div>` : '<div class="empty">ไม่พบปัจจัยเสี่ยงตามเกณฑ์</div>'}
-    ${mh.length ? `<div class="alert warn" style="margin-top:12px"><div class="small"><b>ส่งเสนารักษ์/ประเมินใน AMED สัปดาห์ที่ 1 (${mh.length} นาย)</b>${mh.map(x => esc(x.fname + ' ' + x.lname)).join(', ')}<br><span class="muted">ตอบแบบคัดกรองว่ามีประวัติด้านสุขภาพจิต รายชื่อนี้แสดงเฉพาะตอนนี้ ไม่ถูกบันทึกลงแอป จดไว้หรือแจ้งเสนารักษ์</span></div></div>` : ''}
+    ${mh.length ? `<div class="alert warn" style="margin-top:12px"><div class="small"><b>ส่งเสนารักษ์/ประเมินใน AMED สัปดาห์ที่ 1 (${mh.length} นาย)</b>${mh.map(x => esc(x.fname + ' ' + x.lname)).join(', ')}<br><span class="muted">ตอบแบบคัดกรองว่ามีประวัติด้านสุขภาพจิต รายละเอียดดูได้ในข้อมูลส่วนบุคคลของแต่ละคน (เฉพาะผู้ฝึก ผบ. เสนารักษ์)</span></div></div>` : ''}
     <hr class="sep">
     <label class="check"><input type="checkbox" data-act="inSet" data-f="auto" ${I.auto ? 'checked' : ''}><span>จัดหมู่อัตโนมัติ ให้กลุ่มเสี่ยงกระจายเท่ากันทุกหมู่ (เฉพาะคนที่ยังไม่มีหมู่)</span></label>
     ${I.auto ? `<div class="row small"><label for="in-size">ทหารต่อหมู่</label><input class="input num" id="in-size" data-act="inSet" data-f="size" inputmode="numeric" value="${esc(I.size)}" style="width:80px"><span class="muted">→ ${nSq} หมู่</span></div>` : ''}
-    <p class="tiny muted" style="margin:12px 0 0">บันทึกลงแอป: ยศ ชื่อ สกุล ชื่อเล่น อายุ ส่วนสูง น้ำหนัก สีกลุ่มเสี่ยง และเหตุผลแบบทั่วไป (เช่น "มีโรคประจำตัว") · ไม่บันทึก: เลขบัตร เบอร์โทร ที่อยู่ ชื่อโรค ประวัติสารเสพติด/จิตเวช · นำเข้าซ้ำได้ ระบบจับคู่ตาม ID ของกองพล</p>
+    <p class="tiny muted" style="margin:12px 0 0">ข้อมูลทั่วไป (ทุกบทบาทเห็น): ยศ ชื่อ สกุล ชื่อเล่น อายุ ส่วนสูง น้ำหนัก สีกลุ่มเสี่ยง เหตุผลแบบทั่วไป · ข้อมูลส่วนบุคคล (เฉพาะผู้ฝึก ผบ.หน่วยฝึก เสนารักษ์): เลขบัตร เบอร์โทร ที่อยู่ ชื่อโรค ประวัติสารเสพติด ข้อมูลจิตเวช · นำเข้าซ้ำได้ ระบบจับคู่ตาม ID ของกองพล</p>
     <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-act="close">ยกเลิก</button><button class="btn primary" data-act="inConfirm" ${sel.length ? '' : 'disabled'}>นำเข้า ${sel.length} นาย</button></div>
   </div></div>`;
 }
@@ -781,7 +793,7 @@ async function intakeConfirm() {
       no, rank: x.rank, fname: x.fname, lname: x.lname, nick: x.nick || null, age: x.age, h: x.h, w: x.w, risk,
       riskWhy: risk === x.risk ? (x.store.join(' · ') || null) : (I.over[x.key] ? 'ผู้ฝึกกำหนด' : null), ref: x.ref || null, src: 'กองพล'
     });
-    return { id, rec, sev: SEV[risk], bmi: x.bmi || 0 };
+    return { id, rec, sev: SEV[risk], bmi: x.bmi || 0, p: x.p };
   });
   if (I.auto) {
     const k = Math.max(1, Math.ceil(recs.length / Math.max(1, +I.size || 8)));
@@ -790,6 +802,10 @@ async function intakeConfirm() {
   }
   const upd = {}; recs.forEach(r => { Object.keys(r.rec).forEach(f => { if (r.rec[f] === '' || r.rec[f] === undefined) r.rec[f] = null; }); upd[r.id] = r.rec; });
   await Store.update('soldiers', upd);
+  if (can('priv')) {
+    const pu = {}; recs.forEach(r => { const o = {}; Object.keys(r.p || {}).forEach(f => { if (r.p[f]) o[f] = r.p[f]; }); o.at = Date.now(); pu[r.id] = o; });
+    await Store.update('private', pu);
+  }
   S.modal = null; S.intake = null; toast(`นำเข้า ${recs.length} นายแล้ว`);
 }
 
@@ -844,9 +860,10 @@ const actions = {
   urine: async el => { const id = el.dataset.id, u = +el.dataset.u; const cur = ((S.health[S.round] || {})[id] || {}).u; await Store.update(`health/${S.date}/${S.round}/${id}`, Object.assign({ u: cur === u ? null : u }, stamp())); if (u === 4 && cur !== 4) toast('สี 4 อันตราย: งดฝึก พบแพทย์ทันที'); else if (u === 3 && cur !== 3) toast('สี 3 อันตราย: งดฝึก ดื่มน้ำ แจ้งเสนารักษ์'); },
   away: async el => { const id = el.dataset.id; const cur = ((S.health[S.round] || {})[id] || {}).away; await Store.update(`health/${S.date}/${S.round}/${id}`, Object.assign({ away: cur ? null : true }, stamp())); },
   soldier: el => soldierModal(el.dataset.id),
+  reveal: el => { const id = el.dataset.id; S.reveal[id] = !S.reveal[id]; soldierModal(id); },
   addSoldier: () => soldierModal(null),
   riskPick: el => { const f = el.closest('form'); f.querySelector('[name=risk]').value = el.dataset.k; f.querySelectorAll('[data-act=riskPick]').forEach(b => b.classList.toggle('on', b === el)); },
-  delSoldier: el => { const id = el.dataset.id; askConfirm(`ลบ ${fullName(S.soldiers[id] || {})} ออกจากทะเบียน?`, 'ลบ', async () => { await Store.set('soldiers/' + id, null); toast('ลบแล้ว'); }); },
+  delSoldier: el => { const id = el.dataset.id; askConfirm(`ลบ ${fullName(S.soldiers[id] || {})} ออกจากทะเบียน?`, 'ลบ', async () => { await Store.set('soldiers/' + id, null); if (can('priv')) await Store.set('private/' + id, null); toast('ลบแล้ว'); }); },
   tpl: downloadTemplate,
   inConfirm: () => intakeConfirm(),
   pMove: el => { const m = el.dataset.m; const P = S.P; P.moves = P.moves.includes(m) ? P.moves.filter(x => x !== m) : P.moves.concat([m]); scheduleRender(); },
@@ -967,6 +984,7 @@ function subscribeBase() {
   baseSubs.push(Store.on('settings', v => { S.settings = v || {}; scheduleRender(); }));
   baseSubs.push(Store.on('soldiers', v => { S.soldiers = v || {}; scheduleRender(); }));
   baseSubs.push(Store.on('punish', v => { S.punish = v || {}; scheduleRender(); }));
+  if (can('priv')) baseSubs.push(Store.on('private', v => { S.priv = v || {}; scheduleRender(); }));
   if (can('admin') && Store.mode === 'firebase') baseSubs.push(Store.on('users', v => { S.users = v || {}; scheduleRender(); }));
   subscribeDate();
 }
