@@ -187,8 +187,9 @@ function currentFlag() {
 /* ── สถานะรายบุคคลของวันที่เลือก ── */
 function statusOf(s) {
   let lv = (RISK[s.risk] || RISK.none).lv; const why = [];
-  if (s.risk === 'red') why.push('กลุ่มเสี่ยงสีแดง');
-  else if (s.risk === 'yellow') why.push('กลุ่มเสี่ยงสีเหลือง');
+  const rw = s.riskWhy ? ` (${s.riskWhy})` : '';
+  if (s.risk === 'red') why.push('กลุ่มเสี่ยงสีแดง' + rw);
+  else if (s.risk === 'yellow') why.push('กลุ่มเสี่ยงสีเหลือง' + rw);
   let away = false;
   rounds().forEach(rd => {
     const rec = S.health[rd] && S.health[rd][s.id]; if (!rec) return;
@@ -417,8 +418,9 @@ function viewSoldiers() {
   return `
   <div class="page-h"><div><h1>ทหารใหม่</h1><div class="muted small">${list.length} นาย · ${squads().length} หมู่ฝึก</div></div>
     ${admin ? `<div class="row"><button class="btn" data-act="tpl">${ic('dl')}แบบฟอร์ม Excel</button>
+      <label class="btn primary">${ic('ul')}นำเข้าข้อมูลแรกรับ (กองพล)<input type="file" accept=".csv,.xlsx,.xls" data-act="intake" hidden></label>
       <label class="btn">${ic('ul')}นำเข้า Excel<input type="file" accept=".xlsx,.xls,.csv" data-act="import" hidden></label>
-      <button class="btn primary" data-act="addSoldier">${ic('plus')}เพิ่ม</button></div>` : ''}</div>
+      <button class="btn" data-act="addSoldier">${ic('plus')}เพิ่ม</button></div>` : ''}</div>
   <div class="row" style="margin-bottom:12px">
     <div class="chips" style="flex:1">${['all'].concat(squads()).map(x => `<button class="fchip ${String(S.squad) === String(x) ? 'on' : ''}" data-act="squad" data-q="${esc(x)}">${x === 'all' ? 'ทุกหมู่' : 'หมู่ ' + esc(x)}</button>`).join('')}</div>
     <input class="input" id="ssearch" data-act="search" placeholder="ค้นหาชื่อ/ลำดับ" value="${esc(S.q)}" style="max-width:220px">
@@ -452,7 +454,7 @@ function soldierModal(id) {
         <div class="field"><label>น้ำหนัก กก.</label><input class="input" name="w" inputmode="decimal" value="${esc(s.w || '')}" ${admin ? '' : 'disabled'}></div>
         <div class="field full"><label>กลุ่มเสี่ยงจากการคัดกรองแรกรับ</label>
           <div class="seg">${Object.entries(RISK).map(([k, r]) => `<button type="button" data-act="riskPick" data-k="${k}" class="${(s.risk || 'none') === k ? 'on' : ''}" ${admin ? '' : 'disabled'}>${r.n}</button>`).join('')}</div>
-          <input type="hidden" name="risk" value="${esc(s.risk || 'none')}"></div>
+          <input type="hidden" name="risk" value="${esc(s.risk || 'none')}">${s.riskWhy ? `<div class="tiny muted">เหตุผล: ${esc(s.riskWhy)}</div>` : ''}</div>
         <div class="field full"><label>หมายเหตุ (อย่าใส่รายละเอียดโรค/จิตเวช)</label><input class="input" name="note" value="${esc(s.note || '')}" ${admin ? '' : 'disabled'}></div>
       </div>
       ${admin ? `<div class="row" style="margin-top:16px;justify-content:space-between">${id ? `<button type="button" class="btn danger" data-act="delSoldier" data-id="${id}">ลบ</button>` : '<span></span>'}<button class="btn primary" type="submit">บันทึก</button></div>` : ''}
@@ -643,6 +645,154 @@ function importFile(file) {
   };
   fr.readAsArrayBuffer(file);
 }
+/* ════════════════ นำเข้าข้อมูลแรกรับจากระบบกองพล (พล.พัฒนา 1) ════════════════
+ * รับไฟล์ CSV ที่ดาวน์โหลดจากปุ่ม "ดาวน์โหลด CSV" ของระบบจัดการฐานข้อมูลทหารใหม่ พล.พัฒนา 1
+ * (คอลัมน์แรก = ID ตามด้วย col0–col63 ของแผ่น Data)
+ * วิเคราะห์กลุ่มเสี่ยงตามเกณฑ์ พบ. ในเครื่องนี้ แล้วบันทึกเฉพาะผลลัพธ์ ไม่บันทึกชื่อโรค เลขบัตร เบอร์โทร ที่อยู่ หรือข้อมูลจิตเวช */
+const DIV_LABELS = { 1: ['ยศ'], 2: ['ชื่อ'], 3: ['นามสกุล', 'สกุล'], 4: ['ชื่อเล่น'], 6: ['วันเดือนปีเกิด', 'วันเกิด'], 9: ['ส่วนสูง'], 10: ['น้ำหนัก'],
+  11: ['ดัชนีมวลกาย', 'BMI'], 13: ['โรคประจำตัว'], 19: ['จิตเวช'], 20: ['ซึมเศร้า'], 27: ['แอลกอฮอล์'], 28: ['สารเสพติด'], 29: ['ปัสสาวะ'],
+  50: ['ปีประจำการ', 'ปี'], 51: ['ผลัด'], 52: ['สังกัด'], 53: ['หน่วยฝึก'] };
+const SEV = { red: 3, yellow: 2, green: 1, none: 0 };
+const blankish = v => { const t = String(v == null ? '' : v).trim(); return !t || t === '-' || t === 'ไม่มี' || t === 'ไม่ระบุ'; };
+function divColumns(head) {
+  const h = head.map(x => String(x == null ? '' : x).replace(/^\uFEFF/, '').trim());
+  if (h[0] === 'ID' && h.length >= 60) return { ref: 0, col: j => j + 1, mode: 'export' };
+  const used = new Set(), map = {};
+  Object.entries(DIV_LABELS).forEach(([j, keys]) => {
+    let i = h.findIndex((x, k) => !used.has(k) && keys.some(kw => x === kw));
+    if (i < 0) i = h.findIndex((x, k) => !used.has(k) && keys.some(kw => x.includes(kw)) && !(j === '2' && x.includes('เล่น')) && !(j === '2' && x.includes('ญาติ')));
+    if (i >= 0) { used.add(i); map[j] = i; }
+  });
+  const ref = h.findIndex(x => x === 'ID');
+  if (map[2] == null || map[9] == null || map[10] == null) return null;
+  return { ref, col: j => (map[j] == null ? -1 : map[j]), mode: 'header' };
+}
+function ageFrom(dob, at) {
+  const t = String(dob || '').trim(); const m = t.match(/(\d{1,2})[\/\-. ](\d{1,2})[\/\-. ](\d{4})/) || t.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (!m) return null;
+  let d, mo, y; if (m[1].length === 4) { y = +m[1]; mo = +m[2]; d = +m[3]; } else { d = +m[1]; mo = +m[2]; y = +m[3]; }
+  if (y > 2400) y -= 543;
+  const [ay, am, ad] = at.split('-').map(Number);
+  let a = ay - y; if (am < mo || (am === mo && ad < d)) a--;
+  return a > 10 && a < 60 ? a : null;
+}
+function analyzeIntake(get) {
+  const h = num(get(9)), w = num(get(10));
+  let bmi = h > 0 && w > 0 ? Math.round(w / ((h / 100) ** 2) * 10) / 10 : num(get(11));
+  const why = [], store = []; let risk = 'none';
+  const up = r => { if (SEV[r] > SEV[risk]) risk = r; };
+  if ((bmi != null && bmi >= 30) || (w != null && w >= 100)) { up('red'); const t = bmi != null && bmi >= 30 ? `BMI ${bmi}` : `น้ำหนัก ${w} กก.`; why.push(t + ' (สัปดาห์แรก)'); store.push(t + ' (ทบทวนหลังสัปดาห์แรก)'); }
+  const dis = get(13); if (!blankish(dis)) { up('yellow'); why.push('โรคประจำตัว: ' + String(dis).trim()); store.push('มีโรคประจำตัว'); }
+  if (bmi != null && bmi < 30 && (bmi >= 28 || bmi < 18)) { up('green'); why.push(`BMI ${bmi}`); store.push(`BMI ${bmi}`); }
+  const alc = String(get(27) || ''), drug = String(get(28) || ''), urine = String(get(29) || '');
+  const beh = [];
+  if (alc.includes('ประจำ')) beh.push('ดื่มแอลกอฮอล์ประจำ');
+  if (!drug.trim().startsWith('ไม่เคย') && /เคยใช้|ยังคงใช้|ยังใช้/.test(drug)) beh.push('ประวัติใช้สารเสพติด');
+  if (urine.trim() === 'ตรวจพบ') beh.push('ปัสสาวะพบสารเสพติด');
+  if (beh.length) { up('green'); why.push(beh.join(', ')); store.push('ปัจจัยพฤติกรรม (ดูแฟ้มต้นฉบับ)'); }
+  const p1 = String(get(19) || '').trim(), p2 = String(get(20) || '').trim();
+  const mh = (p1 && !p1.startsWith('ไม่เคย')) || (p2 && !p2.startsWith('ไม่เคย'));
+  return { h, w, bmi, risk, why, store, mh };
+}
+function parseDivision(rows, fileName) {
+  const head = rows[0] || []; const C = divColumns(head);
+  if (!C) return null;
+  const at = S.settings.start || todayStr();
+  const out = [];
+  rows.slice(1).forEach((r, i) => {
+    const get = j => { const k = C.col(j); return k >= 0 ? r[k] : ''; };
+    const fname = String(get(2) || '').trim(); if (!fname) return;
+    const a = analyzeIntake(get);
+    out.push(Object.assign(a, {
+      key: String(C.ref >= 0 ? r[C.ref] : '').trim() || 'row' + (i + 2),
+      ref: String(C.ref >= 0 ? r[C.ref] : '').trim(),
+      rank: String(get(1) || '').trim() || 'พลฯ', fname, lname: String(get(3) || '').trim(), nick: blankish(get(4)) ? '' : String(get(4)).trim(),
+      age: ageFrom(get(6), at), year: String(get(50) || '').trim(), phase: String(get(51) || '').trim(),
+      unit: String(get(53) || '').trim() || String(get(52) || '').trim() || '-'
+    }));
+  });
+  const units = [...new Set(out.map(x => x.unit))].sort();
+  const mine = (S.settings.unit || '') + ' ช.1 พัน.52';
+  const unit = units.find(u => u !== '-' && mine.includes(u)) || (units.length === 1 ? units[0] : 'all');
+  const phases = [...new Set(out.map(x => x.phase).filter(Boolean))].sort();
+  return { fileName, mode: C.mode, rows: out, units, unit, phases, phase: phases.length === 1 ? phases[0] : 'all', auto: true, size: 8, over: {} };
+}
+function intakeSelected() {
+  const I = S.intake; return I.rows.filter(x => (I.unit === 'all' || x.unit === I.unit) && (I.phase === 'all' || x.phase === I.phase));
+}
+const finalRisk = x => S.intake.over[x.key] || x.risk;
+function intakeModal() {
+  const I = S.intake; const sel = intakeSelected();
+  const cnt = k => sel.filter(x => finalRisk(x) === k).length;
+  const flagged = sel.filter(x => x.risk !== 'none' || S.intake.over[x.key]).sort((a, b) => SEV[finalRisk(b)] - SEV[finalRisk(a)]);
+  const mh = sel.filter(x => x.mh);
+  const nSq = Math.max(1, Math.ceil(sel.length / Math.max(1, +I.size || 8)));
+  return `<div class="ov" data-act="closeOv"><div class="sheet" role="dialog" aria-modal="true" aria-label="นำเข้าข้อมูลแรกรับ" style="max-width:820px">
+    <div class="sheet-h"><div><h2>นำเข้าข้อมูลแรกรับ</h2><div class="tiny muted">${esc(I.fileName)} · ${I.rows.length} นายในไฟล์</div></div><button class="x" data-act="close" aria-label="ปิด">×</button></div>
+    <div class="form-grid">
+      <div class="field"><label for="in-unit">หน่วยฝึก</label><select class="input" id="in-unit" data-act="inSet" data-f="unit"><option value="all" ${I.unit === 'all' ? 'selected' : ''}>ทุกหน่วยในไฟล์</option>${I.units.map(u => `<option value="${esc(u)}" ${I.unit === u ? 'selected' : ''}>${esc(u)} (${I.rows.filter(x => x.unit === u).length})</option>`).join('')}</select></div>
+      <div class="field"><label for="in-phase">ผลัด</label><select class="input" id="in-phase" data-act="inSet" data-f="phase"><option value="all" ${I.phase === 'all' ? 'selected' : ''}>ทุกผลัด</option>${I.phases.map(p => `<option value="${esc(p)}" ${I.phase === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></div>
+    </div>
+    <div class="grid g-stats" style="margin:14px 0">
+      <div class="card stat"><div class="k">จะนำเข้า</div><div class="v num">${sel.length}</div><div class="s">นาย</div></div>
+      <div class="card stat bad"><div class="k">แดง</div><div class="v num">${cnt('red')}</div><div class="s">งดฝึก ห้ามลงโทษ</div></div>
+      <div class="card stat warn"><div class="k">เหลือง</div><div class="v num">${cnt('yellow')}</div><div class="s">ลดการฝึก</div></div>
+      <div class="card stat ok"><div class="k">เขียว</div><div class="v num">${cnt('green')}</div><div class="s">เฝ้าระวังพิเศษ</div></div>
+      <div class="card stat"><div class="k">ไม่มีสี</div><div class="v num">${cnt('none')}</div><div class="s">ฝึกปกติ</div></div>
+      <div class="card stat ${mh.length ? 'warn' : ''}"><div class="k">ติดตามสุขภาพจิต</div><div class="v num">${mh.length}</div><div class="s">ไม่บันทึกในระบบ</div></div>
+    </div>
+    <h3 style="margin-bottom:8px">ระบบเสนอสีกลุ่มเสี่ยง (${flagged.length} นาย) — ตรวจและแก้ได้ก่อนนำเข้า</h3>
+    ${flagged.length ? `<div class="tbl-wrap" style="max-height:320px;overflow:auto"><table class="tbl"><thead><tr><th>ชื่อ</th><th>เหตุผล (เห็นเฉพาะตอนนำเข้า)</th><th>สี</th></tr></thead><tbody>
+      ${flagged.map(x => `<tr><td>${esc(x.fname)} ${esc(x.lname)}</td><td style="white-space:normal;min-width:220px">${esc(x.why.join(' · ') || 'แก้ด้วยมือ')}</td><td><select class="input" data-act="inRisk" data-k="${esc(x.key)}" style="min-height:34px;padding:4px 8px;width:auto">${Object.entries(RISK).map(([k, r]) => `<option value="${k}" ${finalRisk(x) === k ? 'selected' : ''}>${r.n}</option>`).join('')}</select></td></tr>`).join('')}
+    </tbody></table></div>` : '<div class="empty">ไม่พบปัจจัยเสี่ยงตามเกณฑ์</div>'}
+    ${mh.length ? `<div class="alert warn" style="margin-top:12px"><div class="small"><b>ส่งเสนารักษ์/ประเมินใน AMED สัปดาห์ที่ 1 (${mh.length} นาย)</b>${mh.map(x => esc(x.fname + ' ' + x.lname)).join(', ')}<br><span class="muted">ตอบแบบคัดกรองว่ามีประวัติด้านสุขภาพจิต รายชื่อนี้แสดงเฉพาะตอนนี้ ไม่ถูกบันทึกลงแอป จดไว้หรือแจ้งเสนารักษ์</span></div></div>` : ''}
+    <hr class="sep">
+    <label class="check"><input type="checkbox" data-act="inSet" data-f="auto" ${I.auto ? 'checked' : ''}><span>จัดหมู่อัตโนมัติ ให้กลุ่มเสี่ยงกระจายเท่ากันทุกหมู่ (เฉพาะคนที่ยังไม่มีหมู่)</span></label>
+    ${I.auto ? `<div class="row small"><label for="in-size">ทหารต่อหมู่</label><input class="input num" id="in-size" data-act="inSet" data-f="size" inputmode="numeric" value="${esc(I.size)}" style="width:80px"><span class="muted">→ ${nSq} หมู่</span></div>` : ''}
+    <p class="tiny muted" style="margin:12px 0 0">บันทึกลงแอป: ยศ ชื่อ สกุล ชื่อเล่น อายุ ส่วนสูง น้ำหนัก สีกลุ่มเสี่ยง และเหตุผลแบบทั่วไป (เช่น "มีโรคประจำตัว") · ไม่บันทึก: เลขบัตร เบอร์โทร ที่อยู่ ชื่อโรค ประวัติสารเสพติด/จิตเวช · นำเข้าซ้ำได้ ระบบจับคู่ตาม ID ของกองพล</p>
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-act="close">ยกเลิก</button><button class="btn primary" data-act="inConfirm" ${sel.length ? '' : 'disabled'}>นำเข้า ${sel.length} นาย</button></div>
+  </div></div>`;
+}
+function intakeFile(file) {
+  if (!file || !needXLSX()) return;
+  const fr = new FileReader();
+  fr.onload = () => {
+    try {
+      const wb = XLSX.read(new Uint8Array(fr.result), { type: 'array', raw: /\.csv$/i.test(file.name) });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
+      const I = parseDivision(rows, file.name);
+      if (!I) return toast('ไม่ใช่ไฟล์จากระบบกองพล ใช้ปุ่ม "ดาวน์โหลด CSV" ในระบบ พล.พัฒนา 1');
+      if (!I.rows.length) return toast('ไม่พบรายชื่อในไฟล์');
+      S.intake = I; S.modal = intakeModal; scheduleRender();
+    } catch (e) { console.error(e); toast('อ่านไฟล์ไม่ได้: ' + e.message); }
+  };
+  fr.readAsArrayBuffer(file);
+}
+async function intakeConfirm() {
+  const I = S.intake; const sel = intakeSelected(); if (!sel.length) return;
+  const existing = soldierList(); const byRef = {}; existing.forEach(s => { if (s.ref) byRef[s.ref] = s; });
+  let nextNo = Math.max(0, ...existing.map(s => +s.no || 0));
+  const recs = sel.map(x => {
+    const old = x.ref && byRef[x.ref];
+    const no = old ? old.no : ++nextNo;
+    const id = old ? old.id : 'n' + String(no).replace(/[.#$\[\]\/]/g, '_');
+    const risk = finalRisk(x);
+    const rec = Object.assign({}, old ? S.soldiers[old.id] : {}, {
+      no, rank: x.rank, fname: x.fname, lname: x.lname, nick: x.nick || null, age: x.age, h: x.h, w: x.w, risk,
+      riskWhy: risk === x.risk ? (x.store.join(' · ') || null) : (I.over[x.key] ? 'ผู้ฝึกกำหนด' : null), ref: x.ref || null, src: 'กองพล'
+    });
+    return { id, rec, sev: SEV[risk], bmi: x.bmi || 0 };
+  });
+  if (I.auto) {
+    const k = Math.max(1, Math.ceil(recs.length / Math.max(1, +I.size || 8)));
+    const free = recs.filter(r => blankish(r.rec.squad)).sort((a, b) => b.sev - a.sev || b.bmi - a.bmi);
+    free.forEach((r, i) => { const lap = Math.floor(i / k), pos = i % k; r.rec.squad = (lap % 2 ? k - pos : pos + 1); });
+  }
+  const upd = {}; recs.forEach(r => { Object.keys(r.rec).forEach(f => { if (r.rec[f] === '' || r.rec[f] === undefined) r.rec[f] = null; }); upd[r.id] = r.rec; });
+  await Store.update('soldiers', upd);
+  S.modal = null; S.intake = null; toast(`นำเข้า ${recs.length} นายแล้ว`);
+}
+
 function exportReport() {
   if (!needXLSX()) return;
   const wb = XLSX.utils.book_new();
@@ -698,6 +848,7 @@ const actions = {
   riskPick: el => { const f = el.closest('form'); f.querySelector('[name=risk]').value = el.dataset.k; f.querySelectorAll('[data-act=riskPick]').forEach(b => b.classList.toggle('on', b === el)); },
   delSoldier: el => { const id = el.dataset.id; askConfirm(`ลบ ${fullName(S.soldiers[id] || {})} ออกจากทะเบียน?`, 'ลบ', async () => { await Store.set('soldiers/' + id, null); toast('ลบแล้ว'); }); },
   tpl: downloadTemplate,
+  inConfirm: () => intakeConfirm(),
   pMove: el => { const m = el.dataset.m; const P = S.P; P.moves = P.moves.includes(m) ? P.moves.filter(x => x !== m) : P.moves.concat([m]); scheduleRender(); },
   pScope: el => { S.punishScope = el.dataset.s; scheduleRender(); },
   pSave: async () => {
@@ -734,6 +885,9 @@ const changeActions = {
     if (kind === 'dorm' && hi != null && hi > 33) toast('โรงนอนเกิน 33 เปิดพัดลม/ระบายอากาศ');
   },
   import: el => { importFile(el.files[0]); el.value = ''; },
+  intake: el => { intakeFile(el.files[0]); el.value = ''; },
+  inSet: el => { const f = el.dataset.f; S.intake[f] = el.type === 'checkbox' ? el.checked : el.value; scheduleRender(); },
+  inRisk: el => { S.intake.over[el.dataset.k] = el.value; scheduleRender(); },
   pSet: el => { S.P[el.dataset.f] = el.value; scheduleRender(); },
   pChk: el => { S.P[el.dataset.f] = el.checked; scheduleRender(); },
   setRole: async el => { await Store.set(`users/${el.dataset.uid}/role`, el.value || null); toast('บันทึกสิทธิ์แล้ว'); },
@@ -882,6 +1036,6 @@ async function boot() {
 }
 
 // สำหรับทดสอบอัตโนมัติ
-window.__CARE = { heatIndexC, flagOf, statusOf, S, Store };
+window.__CARE = { heatIndexC, flagOf, statusOf, S, Store, parseDivision, analyzeIntake };
 boot();
 })();
