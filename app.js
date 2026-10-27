@@ -588,6 +588,7 @@ function viewSettings() {
     <div class="field"><label>ธีม</label><div class="seg">${[['auto', 'ตามเครื่อง'], ['light', 'สว่าง'], ['dark', 'มืด']].map(([k, n]) => `<button data-act="theme" data-t="${k}" class="${(localGet('carenst_theme') || 'auto') === k ? 'on' : ''}">${n}</button>`).join('')}</div></div>
     <p class="small muted" style="margin:12px 0">ติดตั้งเป็นแอปในมือถือ: Android (Chrome) กด ⋮ แล้วเลือก "ติดตั้งแอป" · iPhone (Safari) กดปุ่มแชร์ แล้วเลือก "เพิ่มไปยังหน้าจอโฮม"</p>
     <div class="row">${Store.mode === 'demo' ? '<button class="btn danger" data-act="resetDemo">ล้างข้อมูลทดลอง</button>' : '<button class="btn" data-act="logout">ออกจากระบบ</button>'}</div>
+    ${S.me.role === 'trainer' && Store.mode === 'firebase' ? `<hr class="sep"><div class="field"><label>ล้างข้อมูลหลังซ้อม</label><p class="small muted" style="margin:0 0 8px">ลบรายชื่อ ข้อมูลส่วนบุคคล สุขภาพ ความร้อน และบันทึกลงโทษทั้งหมด และยกเลิกสิทธิ์ผู้ใช้อื่น เหลือบัญชีของคุณคนเดียว · การตั้งค่าหน่วยยังอยู่ · กู้คืนไม่ได้</p><button class="btn danger" data-act="wipeAll">ล้างข้อมูลทั้งหมด</button></div>` : ''}
   </div>
   </div>
   ${admin && Store.mode === 'firebase' ? `<div class="card" style="margin-top:12px"><div class="card-h"><h2>ผู้ใช้และสิทธิ์</h2><span class="small muted">คนใหม่สมัครเองที่หน้าเข้าสู่ระบบ แล้วกำหนดบทบาทที่นี่</span></div>
@@ -971,6 +972,14 @@ const actions = {
   copyReport: async () => { const t = reportText(); try { await navigator.clipboard.writeText(t); toast('คัดลอกแล้ว วางในไลน์/ฟอร์มได้เลย'); } catch (e) { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); toast('คัดลอกแล้ว'); } catch (e2) { toast('คัดลอกไม่ได้'); } ta.remove(); } },
   xlsReport: exportReport,
   theme: el => { localSet('carenst_theme', el.dataset.t === 'auto' ? '' : el.dataset.t); applyTheme(); scheduleRender(); },
+  wipeAll: () => askConfirm('ล้างข้อมูลทั้งหมด? รายชื่อ สุขภาพ ความร้อน บันทึกลงโทษ และสิทธิ์ผู้ใช้อื่นจะถูกลบถาวร เหลือบัญชีคุณคนเดียว', 'ล้างข้อมูลทั้งหมด', async () => {
+    try {
+      for (const k of ['private', 'soldiers', 'health', 'heat', 'dorm', 'punish']) await Store.set(k, null);
+      const others = Object.keys(S.users || {}).filter(uid => uid !== S.me.uid && S.users[uid].role);
+      for (const uid of others) await Store.set(`users/${uid}/role`, null);
+      toast(`ล้างข้อมูลแล้ว · ยกเลิกสิทธิ์ ${others.length} บัญชี`);
+    } catch (e) { console.error(e); toast('ล้างไม่สำเร็จ: ' + (e.code || e.message)); }
+  }),
   resetDemo: () => askConfirm('ล้างข้อมูลทดลองทั้งหมดแล้วเริ่มใหม่?', 'ล้างข้อมูล', () => { seedDemo(); subscribeBase(); S.modal = null; toast('เริ่มข้อมูลทดลองใหม่แล้ว'); }),
   confirmOk: async () => { const fn = S._confirmFn; S._confirmFn = null; S.modal = null; scheduleRender(); if (fn) await fn(); },
   logout: async () => { if (Store.auth) await Store.auth.signOut(); },
