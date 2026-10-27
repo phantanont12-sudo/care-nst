@@ -501,7 +501,7 @@ function viewPunish() {
     .filter(p => S.punishScope === 'all' || p.date === S.date).sort((a, b) => (b.at || 0) - (a.at || 0));
   const moves = lim >= 12 ? PUNISH_MOVES.concat([RUN]) : PUNISH_MOVES;
   return `
-  <div class="page-h"><div><h1>บันทึกการลงโทษ</h1><div class="muted small">ตามวิทยุ ยศ.ทบ. กห 0461/834 · บันทึกแล้วแก้ไข/ลบไม่ได้</div></div></div>
+  <div class="page-h"><div><h1>บันทึกการลงโทษ</h1><div class="muted small">ตามวิทยุ ยศ.ทบ. กห 0461/834 · แก้ไข/ลบได้เฉพาะผู้ฝึก และเก็บประวัติการแก้ไขทุกครั้ง</div></div></div>
   <div class="grid g-2">
     <div class="card">
       <h2 style="margin-bottom:10px">บันทึกใหม่</h2>
@@ -523,12 +523,28 @@ function viewPunish() {
     </div>
     <div class="card">
       <div class="card-h"><h2>บันทึก</h2><div class="seg"><button data-act="pScope" data-s="day" class="${S.punishScope === 'day' ? 'on' : ''}">${thaiDate(S.date)}</button><button data-act="pScope" data-s="all" class="${S.punishScope === 'all' ? 'on' : ''}">ทั้งหมด</button></div></div>
-      ${logs.length ? `<div class="alist">${logs.map(p => `<div class="aitem" style="align-items:flex-start"><div style="min-width:0"><div><b>${esc(p.sname)}</b> <span class="tiny muted">${thaiDate(p.date)} ${esc(p.time)} น.</span></div>
-        <div class="small">${esc((p.moves || []).join(', '))} · ${esc(p.minutes)} นาที</div><div class="tiny muted">ความผิด: ${esc(p.reason)} · ผู้สั่ง ${esc(p.byName)} (${esc((ROLES[p.role] || {}).name || p.role)})</div></div></div>`).join('')}</div>` : '<div class="empty">ไม่มีบันทึก</div>'}
+      ${logs.length ? `<div class="alist">${logs.map(p => `<div class="aitem" style="align-items:flex-start"><div style="min-width:0;flex:1"><div><b>${esc(p.sname)}</b> <span class="tiny muted">${thaiDate(p.date)} ${esc(p.time)} น.</span>${p.editedAt ? ' <span class="pill lv2">แก้ไขแล้ว</span>' : ''}</div>
+        <div class="small">${esc((p.moves || []).join(', '))} · ${esc(p.minutes)} นาที</div><div class="tiny muted">ความผิด: ${esc(p.reason)} · ผู้สั่ง ${esc(p.byName)} (${esc((ROLES[p.role] || {}).name || p.role)})</div>${p.editedAt ? `<div class="tiny muted">แก้ไขล่าสุดโดย ${esc(p.editedByName || '-')} · ${new Date(p.editedAt).toLocaleString('th-TH', { timeZone: TZ, dateStyle: 'short', timeStyle: 'short' })}${p.hist ? ` · ประวัติ ${Object.keys(p.hist).length} ครั้ง` : ''}</div>` : ''}</div>${S.me.role === 'trainer' ? `<div class="row" style="gap:6px;flex:0 0 auto"><button class="btn sm" data-act="pEdit" data-id="${p.id}">แก้ไข</button><button class="btn sm danger" data-act="pDel" data-id="${p.id}">ลบ</button></div>` : ''}</div>`).join('')}</div>` : '<div class="empty">ไม่มีบันทึก</div>'}
     </div>
   </div>`;
 }
 
+function punishEditModal(id) {
+  const p = S.punish[id]; if (!p) return;
+  S.pe = { id, moves: (p.moves || []).slice(), minutes: p.minutes, reason: p.reason || '' };
+  S.modal = () => { const E = S.pe; if (!E) return ''; const moves = PUNISH_MOVES.concat([RUN]); const hist = Object.values(p.hist || {}).sort((a, b) => b.at - a.at);
+    return `<div class="ov" data-act="closeOv"><div class="sheet" role="dialog" aria-modal="true" aria-label="แก้ไขบันทึกลงโทษ">
+    <div class="sheet-h"><div><h2>แก้ไขบันทึกลงโทษ</h2><div class="tiny muted">${esc(p.sname)} · ${thaiDate(p.date)} ${esc(p.time)} น. · ผู้สั่ง ${esc(p.byName)}</div></div><button class="x" data-act="close" aria-label="ปิด">×</button></div>
+    <div class="field"><label>ท่า (${E.moves.length} ท่า)</label><div class="chips" style="flex-wrap:wrap">${moves.map(mv => `<button type="button" class="fchip ${E.moves.includes(mv) ? 'on' : ''}" data-act="peMove" data-m="${esc(mv)}">${esc(mv)}</button>`).join('')}</div></div>
+    <div class="form-grid" style="margin-top:12px">
+      <div class="field"><label for="pe-min">เวลารวม (นาที)</label><input class="input" id="pe-min" data-act="peSet" data-f="minutes" inputmode="decimal" value="${esc(E.minutes)}"></div>
+      <div class="field full"><label for="pe-reason">ความผิด</label><input class="input" id="pe-reason" data-act="peSet" data-f="reason" value="${esc(E.reason)}"></div>
+    </div>
+    ${hist.length ? `<div class="small muted" style="margin-top:12px"><b>ประวัติการแก้ไข</b>${hist.map(h => `<div>${new Date(h.at).toLocaleString('th-TH', { timeZone: TZ, dateStyle: 'short', timeStyle: 'short' })} · ${esc(h.byName)} · เดิม: ${esc((h.moves || []).join(', '))} ${esc(h.minutes)} นาที · ${esc(h.reason)}</div>`).join('')}</div>` : ''}
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-act="close">ยกเลิก</button><button class="btn primary" data-act="peSave">บันทึกการแก้ไข</button></div>
+  </div></div>`; };
+  scheduleRender();
+}
 /* ════════════════ หน้า: รายงานประจำวัน ════════════════ */
 function reportText() {
   const list = soldierList(); const st = list.map(s => Object.assign({ s }, statusOf(s)));
@@ -961,6 +977,20 @@ const actions = {
   tpl: downloadTemplate,
   inConfirm: () => intakeConfirm(),
   pMove: el => { const m = el.dataset.m; const P = S.P; P.moves = P.moves.includes(m) ? P.moves.filter(x => x !== m) : P.moves.concat([m]); scheduleRender(); },
+  pEdit: el => punishEditModal(el.dataset.id),
+  pDel: el => { const id = el.dataset.id; const p = S.punish[id] || {}; askConfirm(`ลบบันทึกลงโทษ ${p.sname || ''} (${thaiDate(p.date)} ${p.time || ''} น.)?`, 'ลบ', async () => { try { await Store.set('punish/' + id, null); toast('ลบบันทึกแล้ว'); } catch (e) { toast('ลบไม่ได้: ' + (e.code || e.message)); } }); },
+  peMove: el => { const m = el.dataset.m; const E = S.pe; E.moves = E.moves.includes(m) ? E.moves.filter(x => x !== m) : E.moves.concat([m]); scheduleRender(); },
+  peSave: async () => {
+    const E = S.pe; const p = S.punish[E.id]; if (!p) return;
+    const minutes = num(E.minutes);
+    if (!E.moves.length) return toast('เลือกท่าอย่างน้อย 1 ท่า');
+    if (minutes == null || minutes <= 0 || minutes > 12) return toast('เวลารวม 1–12 นาที');
+    if (!E.reason || E.reason.trim().length < 5) return toast('ระบุความผิด');
+    const hk = 'h' + Date.now().toString(36);
+    const upd = { moves: E.moves, minutes, reason: E.reason.trim(), editedBy: S.me.uid, editedByName: S.me.name || '', editedAt: Date.now() };
+    upd['hist/' + hk] = { moves: p.moves || [], minutes: p.minutes, reason: p.reason || '', at: Date.now(), byName: S.me.name || '' };
+    try { await Store.update('punish/' + E.id, upd); S.modal = null; S.pe = null; toast('บันทึกการแก้ไขแล้ว'); } catch (e) { toast('แก้ไขไม่ได้: ' + (e.code || e.message)); }
+  },
   pScope: el => { S.punishScope = el.dataset.s; scheduleRender(); },
   pSave: async () => {
     if (punishCheck().length) return;
@@ -1009,6 +1039,7 @@ const changeActions = {
   inRisk: el => { S.intake.over[el.dataset.k] = el.value; scheduleRender(); },
   pSet: el => { S.P[el.dataset.f] = el.value; scheduleRender(); },
   pChk: el => { S.P[el.dataset.f] = el.checked; scheduleRender(); },
+  peSet: el => { S.pe[el.dataset.f] = el.value; },
   setRole: async el => { await Store.set(`users/${el.dataset.uid}/role`, el.value || null); toast('บันทึกสิทธิ์แล้ว'); },
   demoRole: el => { S.me.role = el.value; localSet('carenst_demo_role', el.value); scheduleRender(); }
 };
@@ -1016,7 +1047,8 @@ const inputActions = {
   search: el => { S.q = el.value; scheduleRender(); },
   temp: el => { S.drafts[`t-${el.dataset.id}`] = el.value; },
   heatIn: el => { S.drafts[`${el.dataset.kind}-${el.dataset.k}-${el.dataset.f}`] = el.value; },
-  pSet: el => { S.P[el.dataset.f] = el.value; scheduleRender(); }
+  pSet: el => { S.P[el.dataset.f] = el.value; scheduleRender(); },
+  peSet: el => { S.pe[el.dataset.f] = el.value; }
 };
 const submitActions = {
   saveSoldier: async f => {
