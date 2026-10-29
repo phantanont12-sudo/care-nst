@@ -150,7 +150,7 @@ function loadScript(src) {
 
 /* ════════════════ สถานะแอป ════════════════ */
 const S = {
-  me: null, settings: {}, soldiers: {}, priv: {}, reveal: {}, health: {}, heat: {}, dorm: {}, punish: {}, users: {},
+  me: null, settings: {}, soldiers: {}, priv: {}, reveal: {}, health: {}, heat: {}, dorm: {}, punish: {}, users: {}, hAll: {}, cases: {},
   date: todayStr(), view: 'dash', round: null, squad: 'all', q: '', loginTab: 'login',
   punishScope: 'day', drafts: {}, P: { sid: '', moves: [], minutes: '', reason: '', explained: false, individual: false, open: false }
 };
@@ -225,12 +225,13 @@ const I = {
   dl: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
   ul: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>',
   copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  weekly: '<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 6-6"/>',
   cal: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>'
 };
 const ic = (k, cls) => `<svg class="${cls || ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[k]}</svg>`;
 const NAV = [
   { k: 'dash', n: 'ภาพรวม' }, { k: 'health', n: 'สุขภาพ' }, { k: 'heat', n: 'ความร้อน' },
-  { k: 'soldiers', n: 'ทหารใหม่' }, { k: 'punish', n: 'บันทึกลงโทษ' }, { k: 'report', n: 'รายงาน' }, { k: 'settings', n: 'ตั้งค่า' }
+  { k: 'soldiers', n: 'ทหารใหม่' }, { k: 'weekly', n: 'สรุปสัปดาห์' }, { k: 'punish', n: 'บันทึกลงโทษ' }, { k: 'report', n: 'รายงาน' }, { k: 'settings', n: 'ตั้งค่า' }
 ];
 const MOBILE_NAV = ['dash', 'health', 'heat', 'soldiers'];
 
@@ -288,6 +289,7 @@ function renderView() {
     case 'heat': return viewHeat();
     case 'soldiers': return viewSoldiers();
     case 'punish': return viewPunish();
+    case 'weekly': return viewWeekly();
     case 'report': return viewReport();
     case 'settings': return viewSettings();
     default: return viewDash();
@@ -576,6 +578,200 @@ function viewReport() {
   <p class="tiny muted">หัวข้อ CCIR ของ ยศ.ทบ. มี 21 รายการ ตรวจว่าตัวเลขในรายงานนี้ครอบคลุมหัวข้อที่กองพลใช้ ถ้าต้องการให้เรียงตามฟอร์มจริง ส่งฟอร์มมาเพื่อปรับได้</p>`;
 }
 
+/* ════════════════ หน้า: สรุปรายสัปดาห์ + ทะเบียนผู้ป่วย ════════════════ */
+// ทะเบียนผู้ป่วยเก็บที่ cases/ (เห็นเฉพาะผู้ฝึก ผบ.หน่วยฝึก เสนารักษ์) ส่วนการนับวันป่วยใช้ข้อมูลสุขภาพที่ทุกบทบาทเห็นอยู่แล้ว
+const CASE_SENT = ['เสนารักษ์', 'ห้องพยาบาลหน่วย', 'รพ.ค่าย', 'รพ.อื่น'];
+const CASE_ST = {
+  open: { n: 'กำลังรักษา', lv: 3 }, rest: { n: 'พักฟื้น', lv: 2 }, admit: { n: 'นอน รพ.', lv: 3 }, recovered: { n: 'หายแล้ว', lv: 1 }
+};
+const DAY_K = {
+  sick: { n: 'ป่วย/พบแพทย์', c: 'var(--f-red)' }, dehy: { n: 'ปัสสาวะ 3–4', c: '#b8892b' }, warn: { n: '36.8–37.2°', c: 'var(--f-yellow)' },
+  ok: { n: 'ปกติ', c: 'var(--f-green)' }, away: { n: 'ไม่อยู่', c: 'var(--info)' }, none: { n: 'ไม่มีข้อมูล', c: 'var(--line)' }
+};
+function ensureAllHealth() {
+  if (S._allSub) return;
+  S._allSub = Store.on('health', v => { S.hAll = v || {}; scheduleRender(); });
+  baseSubs.push(S._allSub);
+}
+function weekRange() {
+  const st = S.settings.start; const wNow = weekOf(S.date);
+  if (st && wNow) {
+    const w = S.wk || wNow; const from = addDays(st, (w - 1) * 7);
+    return { w, from, days: [0, 1, 2, 3, 4, 5, 6].map(i => addDays(from, i)), max: Math.max(wNow, weekOf(todayStr()) || 1) };
+  }
+  return { w: null, from: addDays(S.date, -6), days: [6, 5, 4, 3, 2, 1, 0].map(i => addDays(S.date, -i)), max: 0 };
+}
+function caseList() { return Object.entries(S.cases || {}).map(([id, c]) => Object.assign({ id }, c)); }
+function caseOn(sid, d) {
+  return caseList().find(c => c.sid === sid && c.start <= d && (c.end ? d <= c.end : d <= todayStr()) && !(c.status === 'recovered' && c.end && d > c.end));
+}
+function dayInfo(sid, d) {
+  const day = (S.hAll || {})[d] || {}; let maxT = null, maxU = null, doc = false, away = false, any = false;
+  Object.values(day).forEach(rd => {
+    const r = rd && rd[sid]; if (!r) return; any = true;
+    if (r.away) away = true; if (r.doc) doc = true;
+    const t = num(r.t), u = num(r.u);
+    if (t != null && (maxT == null || t > maxT)) maxT = t;
+    if (u != null && (maxU == null || u > maxU)) maxU = u;
+  });
+  const cs = can('priv') ? caseOn(sid, d) : null;
+  let k = 'none';
+  if (any) k = 'ok';
+  if (maxT != null && maxT >= 36.8) k = 'warn';
+  if (maxU != null && maxU >= 3) k = 'dehy';
+  if (doc || (maxT != null && maxT > 37.2)) k = 'sick';
+  if (cs && cs.status !== 'recovered' && k !== 'sick') k = cs.status === 'admit' ? 'away' : 'sick';
+  if (away && k !== 'sick') k = 'away';
+  return { k, maxT, maxU, doc, cs };
+}
+// จัดลำดับความเสี่ยงสัปดาห์ถัดไปจากข้อมูลจริงของสัปดาห์นี้ (ไม่ใช่การวินิจฉัย)
+function weekScore(s, days) {
+  const past = days.filter(d => d <= todayStr());
+  const D = past.map(d => Object.assign({ d }, dayInfo(s.id, d)));
+  let sc = 0; const why = [];
+  const sick = D.filter(x => x.k === 'sick').length, dehy = D.filter(x => x.k === 'dehy').length, warn = D.filter(x => x.k === 'warn').length;
+  let ep = 0; D.forEach((x, i) => { if (x.k === 'sick' && (i === 0 || D[i - 1].k !== 'sick')) ep++; });
+  if (sick) { sc += sick * 3; why.push(`ป่วย ${sick} วัน`); }
+  if (ep >= 2) { sc += 3; why.push(`ป่วยซ้ำ ${ep} ครั้ง`); }
+  if (dehy) { sc += dehy * 2; why.push(`ปัสสาวะสี 3–4 ${dehy} วัน (ขาดน้ำ)`); }
+  if (warn) { sc += warn; why.push(`อุณหภูมิ 36.8–37.2° ${warn} วัน`); }
+  const T = D.filter(x => x.maxT != null).map(x => x.maxT);
+  if (T.length >= 4) {
+    const a = T.slice(0, T.length - 3), b = T.slice(-3), avg = v => v.reduce((p, c) => p + c, 0) / v.length;
+    if (avg(b) - avg(a) >= 0.3 && T[T.length - 1] >= 36.8 && T[T.length - 1] >= T[T.length - 2]) { sc += 2; why.push('อุณหภูมิมีแนวโน้มสูงขึ้น'); }
+  }
+  const last = D[D.length - 1];
+  if (last && (last.k === 'sick' || last.k === 'dehy')) { sc += 3; why.push(last.k === 'sick' ? 'วันล่าสุดยังไม่หาย' : 'วันล่าสุดปัสสาวะยังเข้ม'); }
+  else if (D.slice(-3).some(x => x.k === 'sick')) { sc += 2; why.push('เพิ่งหายไม่เกิน 3 วัน'); }
+  if (s.risk === 'red') { sc += 3; why.push('กลุ่มเสี่ยงแรกรับสีแดง'); }
+  else if (s.risk === 'yellow') { sc += 2; why.push('กลุ่มเสี่ยงแรกรับสีเหลือง'); }
+  else if (s.risk === 'green') { sc += 1; why.push('กลุ่มเสี่ยงแรกรับสีเขียว'); }
+  const b = bmiOf(s); const nextW = (weekOf(days[6]) || 0) + 1;
+  if (((b != null && b >= 30) || +s.w >= 100) && nextW <= HOT_WEEKS) { sc += 2; why.push('BMI ≥30/น้ำหนัก ≥100 กก. (เสี่ยงลมร้อน)'); }
+  const level = sc >= 8 ? 3 : sc >= 4 ? 2 : sc > 0 ? 1 : 0;
+  return { sc, why, level, D, sick, ep };
+}
+function weekData() {
+  const R = weekRange(); const list = soldierList();
+  const rows = list.map(s => Object.assign({ s }, weekScore(s, R.days))).sort((a, b) => b.sc - a.sc || (+a.s.no) - (+b.s.no));
+  const daily = R.days.map((d, i) => {
+    if (d > todayStr()) return { d, future: true };
+    const sickIds = list.filter(s => dayInfo(s.id, d).k === 'sick').map(s => s.id);
+    const prev = i ? R.days[i - 1] : addDays(d, -1);
+    const prevIds = list.filter(s => dayInfo(s.id, prev).k === 'sick').map(s => s.id);
+    return {
+      d, sick: sickIds.length, neu: sickIds.filter(x => !prevIds.includes(x)), cont: sickIds.filter(x => prevIds.includes(x)),
+      rec: prevIds.filter(x => !sickIds.includes(x)),
+      dehy: list.filter(s => dayInfo(s.id, d).k === 'dehy').length, away: list.filter(s => dayInfo(s.id, d).k === 'away').length
+    };
+  });
+  const inWeek = c => c.start <= R.days[6] && (!c.end || c.end >= R.days[0]);
+  const cases = can('priv') ? caseList().filter(inWeek).sort((a, b) => (a.status === 'recovered') - (b.status === 'recovered') || (a.start < b.start ? 1 : -1)) : [];
+  return { R, rows, daily, cases };
+}
+const sname = id => { const s = S.soldiers[id]; return s ? `${s.no}. ${shortName(s)}` : '-'; };
+function viewWeekly() {
+  ensureAllHealth();
+  const list = soldierList();
+  if (!list.length) return '<div class="card empty"><h2>ยังไม่มีรายชื่อทหารใหม่</h2></div>';
+  const W = weekData(); const R = W.R; const priv = can('priv');
+  const hi = W.rows.filter(x => x.level === 3), mid = W.rows.filter(x => x.level === 2), low = W.rows.filter(x => x.level === 1);
+  const maxSick = Math.max(1, ...W.daily.map(x => x.sick || 0));
+  const strip = x => `<div class="dstrip" aria-label="7 วัน">${R.days.map((d, i) => { const D = x.D[i]; const k = D ? D.k : 'none'; return `<i style="background:${DAY_K[k].c}" title="${thaiDate(d, true)}: ${DAY_K[k].n}${D && D.maxT != null ? ' · ' + D.maxT + '°' : ''}${D && D.maxU != null ? ' · ปัสสาวะ ' + D.maxU : ''}">${D && D.maxT != null && D.maxT >= 36.8 ? D.maxT.toFixed(1) : ''}</i>`; }).join('')}</div>`;
+  const row = x => `<div class="aitem wrow" style="align-items:flex-start"><div style="flex:1;min-width:0" data-act="soldier" data-id="${x.s.id}" role="button" tabindex="0">
+      <div class="row" style="justify-content:space-between;gap:8px"><div><b>${esc(x.s.no)}.</b> ${esc(shortName(x.s))} <span class="muted small">หมู่ ${esc(x.s.squad)}</span></div><span class="pill lv${x.level}">คะแนน ${x.sc}</span></div>
+      ${strip(x)}<div class="why">${esc(x.why.join(' · ') || 'ไม่มีข้อสังเกต')}</div></div>
+      ${priv && x.sick && !caseList().some(c => c.sid === x.s.id && c.status !== 'recovered') ? `<button class="btn sm" data-act="caseNew" data-sid="${x.s.id}">เปิดเคส</button>` : ''}</div>`;
+  const recovered = W.cases.filter(c => c.status === 'recovered' && c.end && c.end >= R.days[0] && c.end <= R.days[6]);
+  return `
+  <div class="page-h"><div><h1>สรุปรายสัปดาห์</h1><div class="muted small">${R.w ? `สัปดาห์ที่ ${R.w} · ` : '7 วันล่าสุด · '}${thaiDate(R.days[0])} – ${thaiDate(R.days[6])} · ใช้จัดลำดับว่าสัปดาห์หน้าต้องดูแลใครเป็นพิเศษ</div></div>
+    <div class="row"><button class="btn" data-act="copyWeek">${ic('copy')}คัดลอกส่งไลน์</button>${priv ? `<button class="btn primary" data-act="caseNew">${ic('plus')}เปิดเคสผู้ป่วย</button>` : ''}</div></div>
+  ${R.max ? `<div class="chips" style="margin-bottom:12px">${Array.from({ length: Math.min(R.max, 8) }, (_, i) => i + 1).map(w => `<button class="fchip ${w === R.w ? 'on' : ''}" data-act="wk" data-w="${w}">สัปดาห์ ${w}</button>`).join('')}</div>` : '<p class="small muted">ตั้ง "วันเริ่มฝึก" ในหน้าตั้งค่า เพื่อสรุปตามสัปดาห์การฝึก</p>'}
+  <div class="grid g-stats">
+    <div class="card stat ${hi.length ? 'bad' : 'ok'}"><div class="k">ต้องดูแลพิเศษ</div><div class="v num">${hi.length}</div><div class="s">คะแนน 8 ขึ้นไป</div></div>
+    <div class="card stat ${mid.length ? 'warn' : 'ok'}"><div class="k">เฝ้าระวัง</div><div class="v num">${mid.length}</div><div class="s">คะแนน 4–7</div></div>
+    <div class="card stat"><div class="k">ป่วยสะสมในสัปดาห์</div><div class="v num">${W.rows.filter(x => x.sick).length}</div><div class="s">นาย · รวม ${W.rows.reduce((a, x) => a + x.sick, 0)} วัน-คน</div></div>
+    ${priv ? `<div class="card stat"><div class="k">หายแล้วสัปดาห์นี้</div><div class="v num">${recovered.length}</div><div class="s">ตามทะเบียนผู้ป่วย</div></div>` : ''}
+  </div>
+  <div class="card" style="margin-top:12px">
+    <div class="card-h"><h2>ยอดป่วยรายวัน · เทียบวันก่อนหน้า</h2><span class="small muted">ป่วย = ไข้เกิน 37.2° หรือส่งพบแพทย์${priv ? ' หรือมีเคสที่ยังไม่หาย' : ''}</span></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>วัน</th><th>ป่วย</th><th></th><th>รายใหม่</th><th>ป่วยต่อ</th><th>หายแล้ว</th><th>ปัสสาวะ 3–4</th><th>ไม่อยู่</th></tr></thead><tbody>
+    ${W.daily.map(x => x.future ? `<tr><td>${thaiDate(x.d, true)}</td><td colspan="7" class="muted">ยังไม่ถึง</td></tr>` : `<tr><td>${thaiDate(x.d, true)}</td><td class="num"><b>${x.sick}</b></td><td style="width:30%"><div class="progress bad"><i style="width:${x.sick / maxSick * 100}%"></i></div></td>
+      <td title="${esc(x.neu.map(sname).join(', '))}">${x.neu.length ? `<span class="pill lv3">+${x.neu.length}</span>` : '0'}</td><td>${x.cont.length}</td>
+      <td title="${esc(x.rec.map(sname).join(', '))}">${x.rec.length ? `<span class="pill lv1">${x.rec.length}</span>` : '0'}</td><td>${x.dehy}</td><td>${x.away}</td></tr>`).join('')}
+    </tbody></table></div>
+    <p class="tiny muted" style="margin:8px 0 0">แตะค้าง/ชี้ที่ตัวเลข "รายใหม่" หรือ "หายแล้ว" เพื่อดูชื่อ</p>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <div class="card-h"><h2>พยากรณ์สัปดาห์หน้า · ต้องดูแลใครเป็นพิเศษ</h2><span class="small muted">เรียงจากคะแนนมากไปน้อย</span></div>
+    <div class="legend small muted">${Object.entries(DAY_K).map(([k, v]) => `<span><i style="background:${v.c}"></i>${v.n}</span>`).join('')}</div>
+    ${hi.length ? `<h3 class="wh bad">ต้องดูแลพิเศษ (${hi.length})</h3><div class="alist">${hi.map(row).join('')}</div>` : ''}
+    ${mid.length ? `<h3 class="wh warn">เฝ้าระวัง (${mid.length})</h3><div class="alist">${mid.map(row).join('')}</div>` : ''}
+    ${!hi.length && !mid.length ? '<div class="empty">ไม่มีผู้ที่ต้องดูแลพิเศษในสัปดาห์นี้</div>' : ''}
+    ${low.length ? `<details style="margin-top:10px"><summary class="small">มีข้อสังเกตเล็กน้อย (${low.length})</summary><div class="alist" style="margin-top:8px">${low.map(row).join('')}</div></details>` : ''}
+    <p class="tiny muted" style="margin:12px 0 0">วิธีคิดคะแนน: ป่วย 3/วัน · ป่วยซ้ำ +3 · ปัสสาวะ 3–4 2/วัน · 36.8–37.2° 1/วัน · อุณหภูมิแนวโน้มสูงขึ้น +2 · วันล่าสุดยังไม่หาย +3 (เพิ่งหาย +2) · กลุ่มเสี่ยงแรกรับ แดง 3 เหลือง 2 เขียว 1 · BMI ≥30 ช่วง 8 สัปดาห์แรก +2 — เป็นเครื่องมือจัดลำดับการดูแล ไม่ใช่การวินิจฉัยโรค</p>
+  </div>
+  ${priv ? `<div class="card" style="margin-top:12px">
+    <div class="card-h"><h2>ทะเบียนผู้ป่วยและการส่งต่อ</h2><span class="small muted">เห็นเฉพาะผู้ฝึก ผบ.หน่วยฝึก เสนารักษ์</span></div>
+    ${W.cases.length ? `<div class="alist">${W.cases.map(c => { const st = CASE_ST[c.status] || CASE_ST.open; const days = daysBetween(c.start, c.end || todayStr()) + 1; return `<div class="aitem" style="align-items:flex-start"><span class="pill lv${st.lv}">${st.n}</span><div style="flex:1;min-width:0">
+      <div><b>${esc(sname(c.sid))}</b> <span class="tiny muted">เริ่ม ${thaiDate(c.start)} · ${days} วัน</span></div>
+      <div class="small">อาการ: ${esc(c.symptom)}${c.sent ? ` · ส่งต่อ ${esc(c.sent)}` : ''}</div>
+      ${c.treat ? `<div class="small muted">การรักษา: ${esc(c.treat)}</div>` : ''}
+      ${c.status === 'recovered' ? `<div class="small" style="color:var(--ok)">หายเพราะ: ${esc(c.cause || '-')} (${thaiDate(c.end)})</div>` : ''}
+      <div class="tiny muted">บันทึกโดย ${esc(c.updatedByName || c.byName || '-')}</div></div>
+      <button class="btn sm" data-act="caseEdit" data-id="${c.id}">อัปเดต</button></div>`; }).join('')}</div>` : '<div class="empty">ยังไม่มีเคสในสัปดาห์นี้ · กด "เปิดเคส" ที่รายชื่อผู้ป่วยด้านบน</div>'}
+  </div>
+  ${recovered.length ? `<div class="card" style="margin-top:12px"><div class="card-h"><h2>เปรียบเทียบรายคน · หายเพราะอะไร</h2></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>ชื่อ</th><th>อาการ</th><th>ส่งต่อ</th><th>การรักษา</th><th>ป่วย (วัน)</th><th>หายเพราะ</th></tr></thead><tbody>
+    ${recovered.map(c => `<tr><td>${esc(sname(c.sid))}</td><td>${esc(c.symptom)}</td><td>${esc(c.sent || '-')}</td><td style="white-space:normal">${esc(c.treat || '-')}</td><td class="num">${daysBetween(c.start, c.end) + 1}</td><td style="white-space:normal">${esc(c.cause || '-')}</td></tr>`).join('')}
+    </tbody></table></div></div>` : ''}` : ''}`;
+}
+function weekText() {
+  const W = weekData(); const R = W.R;
+  const L = [`สรุปสุขภาพรายสัปดาห์ ${R.w ? 'สัปดาห์ที่ ' + R.w + ' ' : ''}(${thaiDate(R.days[0])} – ${thaiDate(R.days[6])}) · ${S.settings.unit || 'หน่วยฝึกทหารใหม่'}`];
+  L.push('ยอดป่วยรายวัน (รายใหม่/หายแล้ว):');
+  W.daily.filter(x => !x.future).forEach(x => L.push(`  ${thaiDate(x.d, true)}: ป่วย ${x.sick} (ใหม่ ${x.neu.length} / หาย ${x.rec.length}) · ปัสสาวะ 3–4 ${x.dehy}`));
+  const hi = W.rows.filter(x => x.level === 3), mid = W.rows.filter(x => x.level === 2);
+  L.push(`สัปดาห์หน้าต้องดูแลพิเศษ ${hi.length} นาย:`); hi.forEach(x => L.push(`  - ${x.s.no}. ${shortName(x.s)} หมู่ ${x.s.squad} (${x.why.join(', ')})`));
+  L.push(`เฝ้าระวัง ${mid.length} นาย:`); mid.forEach(x => L.push(`  - ${x.s.no}. ${shortName(x.s)} หมู่ ${x.s.squad} (${x.why.join(', ')})`));
+  return L.join('\n');
+}
+function caseModal(id, sid) {
+  const c = id ? Object.assign({}, S.cases[id]) : { sid: sid || '', start: S.date > todayStr() ? todayStr() : S.date, status: 'open', sent: CASE_SENT[0] };
+  S.ce = { id, sid: c.sid, start: c.start, symptom: c.symptom || '', sent: c.sent || '', treat: c.treat || '', status: c.status || 'open', cause: c.cause || '', end: c.end || todayStr() };
+  S.modal = () => { const E = S.ce; if (!E) return ''; return `<div class="ov" data-act="closeOv"><div class="sheet" role="dialog" aria-modal="true" aria-label="ทะเบียนผู้ป่วย">
+    <div class="sheet-h"><div><h2>${id ? 'อัปเดตเคสผู้ป่วย' : 'เปิดเคสผู้ป่วย'}</h2><div class="tiny muted">ข้อมูลสุขภาพ · เห็นเฉพาะผู้ฝึก ผบ.หน่วยฝึก เสนารักษ์</div></div><button class="x" data-act="close" aria-label="ปิด">×</button></div>
+    <div class="form-grid">
+      <div class="field full"><label for="ce-sid">ทหารใหม่</label><select class="input" id="ce-sid" data-act="ceSet" data-f="sid" ${id ? 'disabled' : ''}><option value="">— เลือก —</option>${soldierList().map(s => `<option value="${s.id}" ${E.sid === s.id ? 'selected' : ''}>${esc(s.no + '. ' + shortName(s))} · หมู่ ${esc(s.squad)}</option>`).join('')}</select></div>
+      <div class="field"><label for="ce-start">วันที่เริ่มป่วย</label><input class="input" type="date" id="ce-start" data-act="ceSet" data-f="start" value="${esc(E.start)}"></div>
+      <div class="field"><label for="ce-sym">อาการ/โรค</label><input class="input" id="ce-sym" data-act="ceSet" data-f="symptom" value="${esc(E.symptom)}" placeholder="เช่น ไข้ ไอ เจ็บคอ / ข้อเท้าแพลง"></div>
+      <div class="field full"><label>ส่งต่อไป</label><div class="seg" style="flex-wrap:wrap">${CASE_SENT.map(x => `<button type="button" data-act="ceSent" data-v="${esc(x)}" class="${E.sent === x ? 'on' : ''}">${esc(x)}</button>`).join('')}</div></div>
+      <div class="field full"><label for="ce-treat">การรักษา/คำสั่งแพทย์</label><input class="input" id="ce-treat" data-act="ceSet" data-f="treat" value="${esc(E.treat)}" placeholder="เช่น ยาลดไข้ พัก 2 วัน งดฝึกกลางแจ้ง"></div>
+      <div class="field full"><label>สถานะ</label><div class="seg" style="flex-wrap:wrap">${Object.entries(CASE_ST).map(([k, v]) => `<button type="button" data-act="ceStatus" data-v="${k}" class="${E.status === k ? 'on' : ''}">${v.n}</button>`).join('')}</div></div>
+      ${E.status === 'recovered' ? `<div class="field"><label for="ce-end">วันที่หาย</label><input class="input" type="date" id="ce-end" data-act="ceSet" data-f="end" value="${esc(E.end)}"></div>
+      <div class="field"><label for="ce-cause">หายเพราะ / ผลการรักษา</label><input class="input" id="ce-cause" data-act="ceSet" data-f="cause" value="${esc(E.cause)}" placeholder="เช่น ได้ยาลดไข้ + พัก 2 วัน ไข้ลด"></div>` : ''}
+    </div>
+    <div class="row" style="justify-content:space-between;margin-top:14px">${id && S.me.role === 'trainer' ? `<button class="btn danger" data-act="caseDel" data-id="${id}">ลบเคส</button>` : '<span></span>'}<div class="row"><button class="btn" data-act="close">ยกเลิก</button><button class="btn primary" data-act="caseSave">บันทึก</button></div></div>
+  </div></div>`; };
+  scheduleRender();
+}
+async function caseSave() {
+  const E = S.ce; if (!E) return;
+  if (!E.sid) return toast('เลือกทหารใหม่');
+  if (!E.start) return toast('ระบุวันที่เริ่มป่วย');
+  if (!E.symptom.trim()) return toast('ระบุอาการ/โรค');
+  if (E.status === 'recovered' && !E.cause.trim()) return toast('ระบุว่าหายเพราะอะไร');
+  if (E.status === 'recovered' && E.end < E.start) return toast('วันที่หายต้องไม่ก่อนวันเริ่มป่วย');
+  const rec = { sid: E.sid, start: E.start, symptom: E.symptom.trim().slice(0, 300), sent: E.sent || '', treat: E.treat.trim().slice(0, 300), status: E.status,
+    cause: E.status === 'recovered' ? E.cause.trim().slice(0, 300) : '', end: E.status === 'recovered' ? E.end : '',
+    updatedBy: S.me.uid, updatedByName: S.me.name || '', updatedAt: Date.now() };
+  try {
+    if (E.id) await Store.update('cases/' + E.id, rec);
+    else await Store.push('cases', Object.assign(rec, { by: S.me.uid, byName: S.me.name || '', at: Date.now() }));
+    S.modal = null; S.ce = null; toast('บันทึกเคสแล้ว');
+  } catch (e) { toast('บันทึกไม่ได้: ' + (e.code || e.message)); }
+}
+
 /* ════════════════ หน้า: ตั้งค่า ════════════════ */
 function viewSettings() {
   const admin = can('admin'); const st = S.settings; const rds = rounds();
@@ -604,7 +800,7 @@ function viewSettings() {
     <div class="field"><label>ธีม</label><div class="seg">${[['auto', 'ตามเครื่อง'], ['light', 'สว่าง'], ['dark', 'มืด']].map(([k, n]) => `<button data-act="theme" data-t="${k}" class="${(localGet('carenst_theme') || 'auto') === k ? 'on' : ''}">${n}</button>`).join('')}</div></div>
     <p class="small muted" style="margin:12px 0">ติดตั้งเป็นแอปในมือถือ: Android (Chrome) กด ⋮ แล้วเลือก "ติดตั้งแอป" · iPhone (Safari) กดปุ่มแชร์ แล้วเลือก "เพิ่มไปยังหน้าจอโฮม"</p>
     <div class="row">${Store.mode === 'demo' ? '<button class="btn danger" data-act="resetDemo">ล้างข้อมูลทดลอง</button>' : '<button class="btn" data-act="logout">ออกจากระบบ</button>'}</div>
-    ${S.me.role === 'trainer' && Store.mode === 'firebase' ? `<hr class="sep"><div class="field"><label>ล้างข้อมูลหลังซ้อม</label><p class="small muted" style="margin:0 0 8px">ลบรายชื่อ ข้อมูลส่วนบุคคล สุขภาพ ความร้อน และบันทึกลงโทษทั้งหมด และยกเลิกสิทธิ์ผู้ใช้อื่น เหลือบัญชีของคุณคนเดียว · การตั้งค่าหน่วยยังอยู่ · กู้คืนไม่ได้</p><button class="btn danger" data-act="wipeAll">ล้างข้อมูลทั้งหมด</button></div>` : ''}
+    ${S.me.role === 'trainer' && Store.mode === 'firebase' ? `<hr class="sep"><div class="field"><label>ล้างข้อมูลหลังซ้อม</label><p class="small muted" style="margin:0 0 8px">ลบรายชื่อ ข้อมูลส่วนบุคคล สุขภาพ ทะเบียนผู้ป่วย ความร้อน และบันทึกลงโทษทั้งหมด และยกเลิกสิทธิ์ผู้ใช้อื่น เหลือบัญชีของคุณคนเดียว · การตั้งค่าหน่วยยังอยู่ · กู้คืนไม่ได้</p><button class="btn danger" data-act="wipeAll">ล้างข้อมูลทั้งหมด</button></div>` : ''}
   </div>
   </div>
   ${admin && Store.mode === 'firebase' ? `<div class="card" style="margin-top:12px"><div class="card-h"><h2>ผู้ใช้และสิทธิ์</h2><span class="small muted">คนใหม่สมัครเองที่หน้าเข้าสู่ระบบ แล้วกำหนดบทบาทที่นี่</span></div>
@@ -970,6 +1166,14 @@ const actions = {
   notifyOn: async () => { if (!('Notification' in window)) return toast('เครื่องนี้ไม่รองรับการแจ้งเตือน'); const r = await Notification.requestPermission(); toast(r === 'granted' ? 'เปิดการแจ้งเตือนแล้ว' : 'ไม่ได้รับอนุญาต เปิดได้ที่การตั้งค่าเบราว์เซอร์'); if (r === 'granted') notifyDevice('CARE-NST', 'การแจ้งเตือนบนเครื่องนี้พร้อมใช้งาน'); scheduleRender(); },
   away: async el => { const id = el.dataset.id; const cur = ((S.health[S.round] || {})[id] || {}).away; await Store.update(`health/${S.date}/${S.round}/${id}`, Object.assign({ away: cur ? null : true }, stamp())); },
   soldier: el => soldierModal(el.dataset.id),
+  wk: el => { S.wk = +el.dataset.w; scheduleRender(); },
+  copyWeek: async () => { const t = weekText(); try { await navigator.clipboard.writeText(t); toast('คัดลอกแล้ว'); } catch (e) { toast('คัดลอกไม่ได้'); } },
+  caseNew: el => caseModal(null, el.dataset.sid || ''),
+  caseEdit: el => caseModal(el.dataset.id),
+  ceSent: el => { S.ce.sent = S.ce.sent === el.dataset.v ? '' : el.dataset.v; scheduleRender(); },
+  ceStatus: el => { S.ce.status = el.dataset.v; scheduleRender(); },
+  caseSave: () => caseSave(),
+  caseDel: el => { const id = el.dataset.id; askConfirm('ลบเคสผู้ป่วยนี้?', 'ลบ', async () => { try { await Store.set('cases/' + id, null); S.ce = null; toast('ลบเคสแล้ว'); } catch (e) { toast('ลบไม่ได้: ' + (e.code || e.message)); } }); },
   reveal: el => { const id = el.dataset.id; S.reveal[id] = !S.reveal[id]; soldierModal(id); },
   addSoldier: () => soldierModal(null),
   riskPick: el => { const f = el.closest('form'); f.querySelector('[name=risk]').value = el.dataset.k; f.querySelectorAll('[data-act=riskPick]').forEach(b => b.classList.toggle('on', b === el)); },
@@ -1004,7 +1208,7 @@ const actions = {
   theme: el => { localSet('carenst_theme', el.dataset.t === 'auto' ? '' : el.dataset.t); applyTheme(); scheduleRender(); },
   wipeAll: () => askConfirm('ล้างข้อมูลทั้งหมด? รายชื่อ สุขภาพ ความร้อน บันทึกลงโทษ และสิทธิ์ผู้ใช้อื่นจะถูกลบถาวร เหลือบัญชีคุณคนเดียว', 'ล้างข้อมูลทั้งหมด', async () => {
     try {
-      for (const k of ['private', 'soldiers', 'health', 'heat', 'dorm', 'punish']) await Store.set(k, null);
+      for (const k of ['private', 'cases', 'soldiers', 'health', 'heat', 'dorm', 'punish']) await Store.set(k, null);
       const others = Object.keys(S.users || {}).filter(uid => uid !== S.me.uid && S.users[uid].role);
       for (const uid of others) await Store.set(`users/${uid}/role`, null);
       toast(`ล้างข้อมูลแล้ว · ยกเลิกสิทธิ์ ${others.length} บัญชี`);
@@ -1040,6 +1244,7 @@ const changeActions = {
   pSet: el => { S.P[el.dataset.f] = el.value; scheduleRender(); },
   pChk: el => { S.P[el.dataset.f] = el.checked; scheduleRender(); },
   peSet: el => { S.pe[el.dataset.f] = el.value; },
+  ceSet: el => { S.ce[el.dataset.f] = el.value; if (el.tagName === 'SELECT') scheduleRender(); },
   setRole: async el => { await Store.set(`users/${el.dataset.uid}/role`, el.value || null); toast('บันทึกสิทธิ์แล้ว'); },
   demoRole: el => { S.me.role = el.value; localSet('carenst_demo_role', el.value); scheduleRender(); }
 };
@@ -1048,7 +1253,8 @@ const inputActions = {
   temp: el => { S.drafts[`t-${el.dataset.id}`] = el.value; },
   heatIn: el => { S.drafts[`${el.dataset.kind}-${el.dataset.k}-${el.dataset.f}`] = el.value; },
   pSet: el => { S.P[el.dataset.f] = el.value; scheduleRender(); },
-  peSet: el => { S.pe[el.dataset.f] = el.value; }
+  peSet: el => { S.pe[el.dataset.f] = el.value; },
+  ceSet: el => { S.ce[el.dataset.f] = el.value; }
 };
 const submitActions = {
   saveSoldier: async f => {
@@ -1115,11 +1321,13 @@ function subscribeDate() {
   ['health', 'heat', 'dorm'].forEach(k => dateSubs.push(Store.on(`${k}/${S.date}`, v => { S[k] = v || {}; if (k === 'health') { S._hLoaded = true; setTimeout(() => maybeBrief(false), 1200); } if (k === 'heat') checkHeatChange(); scheduleRender(); })));
 }
 function subscribeBase() {
-  baseSubs.forEach(u => u()); baseSubs = [];
+  baseSubs.forEach(u => u()); baseSubs = []; S._allSub = null;
   baseSubs.push(Store.on('settings', v => { S.settings = v || {}; scheduleRender(); }));
   baseSubs.push(Store.on('soldiers', v => { S.soldiers = v || {}; scheduleRender(); }));
   baseSubs.push(Store.on('punish', v => { S.punish = v || {}; scheduleRender(); }));
   if (can('priv')) baseSubs.push(Store.on('private', v => { S.priv = v || {}; scheduleRender(); }));
+  if (can('priv')) baseSubs.push(Store.on('cases', v => { S.cases = v || {}; scheduleRender(); }));
+  if (S.view === 'weekly') ensureAllHealth();
   if (can('admin') && Store.mode === 'firebase') baseSubs.push(Store.on('users', v => { S.users = v || {}; scheduleRender(); }));
   subscribeDate();
 }
@@ -1137,9 +1345,28 @@ function seedDemo() {
   });
   const health = {}; health[t] = { '0500': {} };
   Object.keys(sol).forEach((id, i) => { if (i < 20) health[t]['0500'][id] = { t: i === 7 ? 37.6 : i === 14 ? 37.0 : Math.round((36.2 + (i % 5) / 10) * 10) / 10, u: i === 19 ? 4 : i === 2 ? 3 : i % 3, by: 'demo', byName: 'ตัวอย่าง', at: Date.now() }; });
+  // ประวัติย้อนหลัง 9 วัน (สมมติ) ให้หน้าสรุปรายสัปดาห์มีข้อมูล
+  const ill = { n8: [-3, -2, -1], n15: [-8, -7, -3], n3: [-6, -5], n11: [-1] }, dark = { n20: [-4, -2, -1], n4: [-5] }, rising = { n8: [-6, -5, -4] };
+  for (let k = -9; k <= -1; k++) {
+    const d = addDays(t, k); health[d] = {};
+    ALL_ROUNDS.forEach((rd, ri) => { health[d][rd] = {}; Object.keys(sol).forEach((id, i) => {
+      let tt = Math.round((36.1 + ((i + k + ri) % 5) / 10) * 10) / 10, u = (i + k) % 3;
+      if ((rising[id] || []).includes(k)) tt = 36.8 + (k + 6) * 0.15;
+      if ((ill[id] || []).includes(k)) tt = 37.6 + (ri === 1 ? 0.3 : 0);
+      if ((dark[id] || []).includes(k) && ri === 1) u = 3;
+      const rec = { t: Math.round(tt * 10) / 10, u, by: 'demo', byName: 'ตัวอย่าง', at: Date.now() };
+      if ((ill[id] || []).includes(k) && ri === 0) rec.doc = true;
+      health[d][rd][id] = rec;
+    }); });
+  }
+  const cases = {
+    c1: { sid: 'n3', start: addDays(t, -6), symptom: 'ไข้ ไอ เจ็บคอ', sent: 'ห้องพยาบาลหน่วย', treat: 'ยาลดไข้ ยาแก้ไอ พักในโรงนอน 2 วัน', status: 'recovered', cause: 'ได้ยาลดไข้ + พัก 2 วัน ดื่มน้ำ ไข้ลดเอง', end: addDays(t, -4), by: 'demo', byName: 'เสนารักษ์ (ตัวอย่าง)', at: Date.now() },
+    c2: { sid: 'n15', start: addDays(t, -8), symptom: 'ท้องเสีย', sent: 'เสนารักษ์', treat: 'ผงเกลือแร่ งดฝึกกลางแจ้ง 1 วัน', status: 'recovered', cause: 'เกลือแร่ + งดฝึก 1 วัน', end: addDays(t, -6), by: 'demo', byName: 'เสนารักษ์ (ตัวอย่าง)', at: Date.now() },
+    c3: { sid: 'n8', start: addDays(t, -3), symptom: 'ไข้สูง ปวดเมื่อยตัว', sent: 'รพ.ค่าย', treat: 'ตรวจเลือด ยาลดไข้ พักฟื้น 3 วัน', status: 'open', by: 'demo', byName: 'เสนารักษ์ (ตัวอย่าง)', at: Date.now() }
+  };
   Store.tree = {
     settings: { unit: 'หน่วยฝึกทหารใหม่ (ตัวอย่าง)', cohort: '2/69', start: addDays(t, -10), rounds: ALL_ROUNDS.slice() },
-    soldiers: sol, health,
+    soldiers: sol, health, cases,
     heat: { [t]: { '0800': { temp: 30, rh: 75 }, '1000': { temp: 34, rh: 60 } } },
     dorm: {}, punish: {}
   };
