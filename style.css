@@ -217,3 +217,13 @@ pre.report{white-space:pre-wrap;background:var(--surface-2);border-radius:10px;p
 .popalert{position:fixed;z-index:55;left:50%;transform:translateX(-50%);top:calc(12px + env(safe-area-inset-top));width:min(640px,calc(100vw - 24px));box-shadow:0 10px 30px rgba(0,0,0,.25);align-items:center;animation:popin .25s ease-out}
 @keyframes popin{from{transform:translate(-50%,-16px)}to{transform:translate(-50%,0)}}
 @media (prefers-reduced-motion:reduce){.popalert{animation:none}}
+/* สรุปรายสัปดาห์ */
+.dstrip{display:flex;gap:4px;margin:6px 0 4px}
+.dstrip i{width:34px;height:22px;border-radius:5px;font-style:normal;font-size:10px;font-weight:700;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-bottom:10px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
+.wh{margin:14px 0 8px;font-size:15px}
+.wh.bad{color:var(--bad)} .wh.warn{color:var(--warn)}
+.progress.bad i{background:var(--bad)}
+.wrow [data-act=soldier]{cursor:pointer}
