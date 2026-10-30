@@ -150,7 +150,7 @@ function loadScript(src) {
 
 /* ════════════════ สถานะแอป ════════════════ */
 const S = {
-  me: null, settings: {}, soldiers: {}, priv: {}, reveal: {}, health: {}, heat: {}, dorm: {}, punish: {}, users: {}, hAll: {}, cases: {},
+  me: null, settings: {}, soldiers: {}, priv: {}, reveal: {}, health: {}, heat: {}, dorm: {}, punish: {}, users: {}, hAll: {}, cases: {}, audit: {},
   date: todayStr(), view: 'dash', round: null, squad: 'all', q: '', loginTab: 'login',
   punishScope: 'day', drafts: {}, P: { sid: '', moves: [], minutes: '', reason: '', explained: false, individual: false, open: false }
 };
@@ -246,6 +246,7 @@ function render() {
   const sc = window.scrollY;
   if (!S.me) { root.innerHTML = S.authLoading ? '<div class="empty" style="padding-top:40vh">กำลังโหลด…</div>' : viewLogin(); return restore(); }
   if (!S.me.role || !ROLES[S.me.role]) { root.innerHTML = viewPending(); return restore(); }
+  if (!pdpaAcked()) { root.innerHTML = viewPdpaAck(); return restore(); }
 
   const flag = currentFlag(); const w = weekOf(S.date);
   const alerts = soldierList().filter(s => statusOf(s).lv === 3).length;
@@ -313,6 +314,7 @@ function viewDash() {
   return `
   <div class="page-h"><div><h1>ภาพรวม ${thaiDate(S.date, true)}</h1><div class="muted small">${S.date === todayStr() ? 'วันนี้' : 'ดูย้อนหลัง'} · อัปเดตอัตโนมัติ</div></div><button class="btn" data-act="brief">สรุปเช้านี้</button></div>
   ${(() => { const B = briefData(); return `<div class="card" style="padding:12px 14px;margin-bottom:12px"><div class="row" style="gap:16px;flex-wrap:wrap"><span class="pill ${B.docs.length ? 'lv3' : 'lv1'}">พบแพทย์ ${B.docs.length}</span>${[3, 2, 1, 0].map(lv => `<span class="row" style="gap:6px;display:inline-flex"><i class="rdot rd-${LV_COLOR[lv].k}"></i>${LV_COLOR[lv].n} <b class="num">${B.groups[lv].length}</b></span>`).join('')}<span class="small muted">ไม่อยู่ ${B.away.length}</span></div></div>`; })()}
+  ${can('admin') && sensitiveDue() && todayStr() >= sensitiveDue() && hasSensitive() ? `<div class="alert bad" style="margin-bottom:8px"><div><b>ครบกำหนดลบข้อมูลอ่อนไหวตาม PDPA (${thaiDate(sensitiveDue())})</b>ข้อมูลส่วนบุคคลและทะเบียนผู้ป่วยยังอยู่ในระบบ ${S.me.role === 'trainer' ? '<button class="btn sm danger" data-act="wipeSensitive" style="margin-left:6px">ลบตอนนี้</button>' : 'แจ้งผู้ฝึกให้ลบ'}</div></div>` : ''}
   ${missing.map(rd => `<div class="alert warn"><div><b>ยังกรอกสุขภาพรอบ ${rl(rd)} น. ไม่ครบ</b>กรอกแล้ว ${doneBy(rd)}/${list.length} นาย <button class="btn sm" data-act="goHealth" data-r="${rd}" style="margin-left:6px">ไปกรอก</button></div></div>`).join('')}
   ${hot.hot && w && w <= HOT_WEEKS ? `<div class="alert bad" style="margin-top:8px"><div><b>อากาศร้อนเกินเกณฑ์ (สัปดาห์ที่ ${w})</b>ดัชนีความร้อนสูงสุด ${hot.maxHI ?? '-'} / อุณหภูมิ ${hot.maxT ?? '-'}°C: ผู้ที่ BMI ≥30 หรือน้ำหนัก ≥100 กก. งดฝึก งดซ่อมวินัย อาบน้ำเพิ่มหลังอาหารกลางวันและก่อนออกกำลังกายเย็น</div></div>` : ''}
   <div class="grid g-stats" style="margin-top:12px">
@@ -440,7 +442,7 @@ function privBlock(id) {
   const mask = v => !v ? '-' : (show ? esc(v) : esc(String(v).replace(/.(?=.{4})/g, '•')));
   const row = (k, v) => `<dt>${k}</dt><dd style="font-weight:500;white-space:pre-wrap">${v}</dd>`;
   return `<div class="field full"><div class="alert info" style="display:block"><div class="row" style="justify-content:space-between;margin-bottom:8px"><b>ข้อมูลส่วนบุคคล</b><span class="row tiny muted">เห็นเฉพาะผู้ฝึก ผบ.หน่วยฝึก เสนารักษ์ <button type="button" class="btn sm" data-act="reveal" data-id="${id}">${show ? 'ซ่อน' : 'แสดงทั้งหมด'}</button></span></div>
-    ${Object.keys(p).length ? `<dl class="kv">${row('เลขบัตรประชาชน', mask(p.cid))}${row('เบอร์โทร', mask(p.phone))}${row('ที่อยู่', show ? esc(p.addr || '-') : (p.addr ? '••••' : '-'))}${row('โรคประจำตัว', esc(p.disease || '-'))}${row('สารเสพติด', show ? esc([p.drug, p.urine && 'ผลปัสสาวะ: ' + p.urine].filter(Boolean).join(' · ') || '-') : '••••')}${row('สุขภาพจิต', show ? esc([p.psych, p.dep].filter(Boolean).join(' · ') || '-') : '••••')}</dl>` : '<div class="small muted">ยังไม่มีข้อมูล นำเข้าจากระบบกองพลเพื่อเติม</div>'}
+    ${Object.keys(p).length ? `<dl class="kv">${row('เลขบัตรประชาชน', mask(p.cid))}${row('เบอร์โทร', mask(p.phone))}${row('ที่อยู่', show ? esc(p.addr || '-') : (p.addr ? '••••' : '-'))}${row('โรคประจำตัว', show ? esc(p.disease || '-') : (p.disease ? '••••' : '-'))}${row('สารเสพติด', show ? esc([p.drug, p.urine && 'ผลปัสสาวะ: ' + p.urine].filter(Boolean).join(' · ') || '-') : '••••')}${row('สุขภาพจิต', show ? esc([p.psych, p.dep].filter(Boolean).join(' · ') || '-') : '••••')}</dl>` : '<div class="small muted">ยังไม่มีข้อมูล นำเข้าจากระบบกองพลเพื่อเติม</div>'}
   </div></div>`;
 }
 function soldierModal(id) {
@@ -576,6 +578,72 @@ function viewReport() {
     <div class="row"><button class="btn" data-act="copyReport">${ic('copy')}คัดลอกข้อความ</button><button class="btn primary" data-act="xlsReport">${ic('dl')}ส่งออก Excel</button></div></div>
   <div class="card"><pre class="report">${esc(reportText())}</pre></div>
   <p class="tiny muted">หัวข้อ CCIR ของ ยศ.ทบ. มี 21 รายการ ตรวจว่าตัวเลขในรายงานนี้ครอบคลุมหัวข้อที่กองพลใช้ ถ้าต้องการให้เรียงตามฟอร์มจริง ส่งฟอร์มมาเพื่อปรับได้</p>`;
+}
+
+/* ════════════════ PDPA: ข้อตกลงผู้ใช้ · บันทึกการเข้าถึง · ระยะเก็บรักษา ════════════════ */
+// อ้างอิง พ.ร.บ.คุ้มครองข้อมูลส่วนบุคคล พ.ศ.2562: เก็บเท่าที่จำเป็นตามวัตถุประสงค์ จำกัดผู้เข้าถึง มีบันทึกการเข้าถึง และลบเมื่อพ้นระยะเวลาเก็บ
+const PDPA_FOOT = '— ข้อมูลส่วนบุคคล ใช้ภายในสายการบังคับบัญชาเท่านั้น ห้ามส่งต่อ (PDPA)';
+const PDPA_GROUPS = [
+  { k: 'cid', n: 'เลขบัตรประชาชน', f: ['cid'] }, { k: 'contact', n: 'เบอร์โทร/ที่อยู่', f: ['phone', 'addr'] },
+  { k: 'health', n: 'โรคประจำตัว', f: ['disease'] }, { k: 'drug', n: 'ประวัติสารเสพติด', f: ['drug', 'urine'] }, { k: 'psych', n: 'สุขภาพจิต', f: ['psych', 'dep'] }
+];
+function trainEnd() { const st = S.settings; return st.end || (st.start ? addDays(st.start, 55) : null); }
+function retainDays() { const n = +S.settings.retain; return n > 0 ? n : 30; }
+function sensitiveDue() { const e = trainEnd(); return e ? addDays(e, retainDays()) : null; }
+function hasSensitive() { return Object.keys(S.priv || {}).length > 0 || Object.keys(S.cases || {}).length > 0; }
+function audit(act, sid, note) {
+  if (!S.me) return;
+  Store.push('audit', { uid: S.me.uid, name: S.me.name || '', role: S.me.role || '', act, sid: sid || null, note: note || null, at: Date.now() }).catch(() => {});
+}
+function pdpaAcked() { return Store.mode === 'demo' ? !!localGet('carenst_pdpa_demo') : !!S.me.pdpaAt; }
+function viewPdpaAck() {
+  return `<div class="login-wrap" style="padding:0 16px"><div class="card" style="max-width:620px;margin:6vh auto">
+    <h1 style="margin-bottom:6px">ข้อตกลงการใช้ข้อมูลส่วนบุคคล (PDPA)</h1>
+    <p class="small muted" style="margin-top:0">อ่านและยอมรับก่อนเข้าใช้งานครั้งแรก · บทบาทของคุณ: ${esc(ROLES[S.me.role].name)}</p>
+    <ol class="small" style="line-height:1.7;padding-left:20px">
+      <li>ข้อมูลในระบบใช้เพื่อ<b>ดูแลสุขภาพและความปลอดภัยของทหารใหม่ระหว่างการฝึก</b>เท่านั้น ห้ามใช้เพื่อวัตถุประสงค์อื่น</li>
+      <li>ห้ามถ่ายภาพหน้าจอ คัดลอก หรือส่งต่อข้อมูลรายบุคคลออกนอกสายการบังคับบัญชาและผู้ที่เกี่ยวข้องกับการรักษา</li>
+      <li>ข้อมูลอ่อนไหว (โรค สารเสพติด สุขภาพจิต เลขบัตร ที่อยู่ ทะเบียนผู้ป่วย) เห็นเฉพาะผู้ฝึก ผบ.หน่วยฝึก และเสนารักษ์ และ<b>ทุกครั้งที่เปิดดูจะถูกบันทึก</b></li>
+      <li>ห้ามใช้บัญชีร่วมกับผู้อื่น เมื่อพ้นหน้าที่ ผู้ฝึกจะยกเลิกสิทธิ์</li>
+      <li>หากพบข้อมูลรั่วไหลหรือเข้าถึงโดยไม่ได้รับอนุญาต ให้แจ้งผู้ฝึกทันที</li>
+    </ol>
+    <label class="check" style="margin:10px 0"><input type="checkbox" id="pdpa-ok" data-act="pdpaTick" ${S.pdpaTick ? 'checked' : ''}><span>ข้าพเจ้าได้อ่านและยอมปฏิบัติตามข้อตกลงนี้</span></label>
+    <div class="row" style="justify-content:space-between">${Store.mode === 'firebase' ? '<button class="btn" data-act="logout">ออกจากระบบ</button>' : '<span></span>'}<button class="btn primary" data-act="pdpaAccept" ${S.pdpaTick ? '' : 'disabled'}>ยอมรับและเข้าใช้งาน</button></div>
+  </div></div>`;
+}
+function recruitNotice() {
+  const due = sensitiveDue();
+  return [`ประกาศการเก็บและใช้ข้อมูลส่วนบุคคลของทหารใหม่ · ${S.settings.unit || 'หน่วยฝึกทหารใหม่'} ผลัด ${S.settings.cohort || '-'}`,
+    '1. วัตถุประสงค์: ดูแลสุขภาพ ป้องกันการบาดเจ็บและโรคลมร้อน และความปลอดภัยระหว่างการฝึก',
+    '2. ข้อมูลที่เก็บ: ชื่อ อายุ ส่วนสูง น้ำหนัก ผลคัดกรองสุขภาพแรกรับ อุณหภูมิและสีปัสสาวะรายวัน การเจ็บป่วยและการรักษา และข้อมูลติดต่อที่จำเป็น',
+    '3. ผู้เข้าถึง: ครูฝึกเห็นเฉพาะข้อมูลที่ใช้ในการฝึก ข้อมูลสุขภาพละเอียดและข้อมูลติดต่อเห็นเฉพาะผู้ฝึก ผบ.หน่วยฝึก และเสนารักษ์ และมีบันทึกการเข้าถึงทุกครั้ง',
+    `4. ระยะเวลาเก็บ: ข้อมูลอ่อนไหวจะถูกลบ${due ? 'ภายใน ' + thaiDate(due) : ' ' + retainDays() + ' วันหลังจบการฝึก'} ส่วนข้อมูลสรุปที่ไม่ระบุตัวบุคคลอาจเก็บไว้เพื่อปรับปรุงการฝึก`,
+    '5. ไม่เปิดเผยแก่บุคคลภายนอก เว้นแต่เพื่อการรักษาพยาบาลหรือตามที่กฎหมายกำหนด',
+    `6. สิทธิของท่าน: ขอดู ขอแก้ไขข้อมูลที่ไม่ถูกต้อง หรือสอบถามได้ที่ ${S.settings.dpo || 'ผู้ฝึก/ผบ.หน่วยฝึก'}`].join('\n');
+}
+function pdpaCard() {
+  const admin = can('admin'); const due = sensitiveDue(); const st = S.settings;
+  const logs = Object.values(S.audit || {}).sort((a, b) => b.at - a.at).slice(0, 60);
+  return `<div class="card" style="margin-top:12px">
+    <div class="card-h"><h2>การคุ้มครองข้อมูลส่วนบุคคล (PDPA)</h2><button class="btn sm" data-act="copyNotice">${ic('copy')}คัดลอกประกาศแจ้งทหารใหม่</button></div>
+    <div class="grid g-2">
+      <dl class="kv">
+        <dt>วัตถุประสงค์</dt><dd>ดูแลสุขภาพและความปลอดภัยระหว่างฝึก</dd>
+        <dt>ข้อมูลทั่วไป</dt><dd>ทุกบทบาทเห็น: ชื่อ หมู่ ส่วนสูง น้ำหนัก สีกลุ่มเสี่ยง อุณหภูมิ ปัสสาวะ</dd>
+        <dt>ข้อมูลอ่อนไหว</dt><dd>ผู้ฝึก ผบ.หน่วยฝึก เสนารักษ์: โรค สารเสพติด สุขภาพจิต เลขบัตร ที่อยู่ ทะเบียนผู้ป่วย · ซ่อนไว้จนกดแสดง</dd>
+        <dt>บันทึกการเข้าถึง</dt><dd>ทุกครั้งที่เปิดดูข้อมูลอ่อนไหว นำเข้า ส่งออก หรือลบ</dd>
+        <dt>ครบกำหนดลบ</dt><dd>${due ? `${thaiDate(due)} (จบฝึก ${thaiDate(trainEnd())} + ${retainDays()} วัน)` : 'ตั้งวันเริ่มฝึกก่อน'}</dd>
+        <dt>ติดต่อเรื่องข้อมูล</dt><dd>${esc(st.dpo || 'ยังไม่ระบุ')}</dd>
+      </dl>
+      <div>
+        ${S.me.role === 'trainer' ? `<div class="alert ${due && todayStr() >= due && hasSensitive() ? 'bad' : 'info'}" style="display:block"><b>ลบข้อมูลอ่อนไหว</b><div class="small" style="margin:4px 0 8px">ลบข้อมูลส่วนบุคคล (เลขบัตร ที่อยู่ โรค สารเสพติด สุขภาพจิต) และทะเบียนผู้ป่วยทั้งหมด · รายชื่อ สุขภาพรายวัน และสถิติยังอยู่ · กู้คืนไม่ได้</div><button class="btn danger sm" data-act="wipeSensitive">ลบข้อมูลอ่อนไหวทั้งหมด</button></div>` : ''}
+      </div>
+    </div>
+    ${admin ? `<h3 style="margin:14px 0 8px">บันทึกการเข้าถึงข้อมูลล่าสุด</h3>
+    ${logs.length ? `<div class="tbl-wrap" style="max-height:320px;overflow:auto"><table class="tbl"><thead><tr><th>เวลา</th><th>ผู้ใช้</th><th>การกระทำ</th><th>ทหารใหม่</th></tr></thead><tbody>
+      ${logs.map(l => `<tr><td>${new Date(l.at).toLocaleString('th-TH', { timeZone: TZ, dateStyle: 'short', timeStyle: 'short' })}</td><td>${esc(l.name)} <span class="tiny muted">${esc((ROLES[l.role] || {}).name || '')}</span></td><td>${esc(l.act)}${l.note ? ` <span class="tiny muted">${esc(l.note)}</span>` : ''}</td><td>${l.sid ? esc(sname(l.sid)) : '-'}</td></tr>`).join('')}
+    </tbody></table></div>` : '<div class="empty">ยังไม่มีบันทึก</div>'}` : ''}
+  </div>`;
 }
 
 /* ════════════════ หน้า: สรุปรายสัปดาห์ + ทะเบียนผู้ป่วย ════════════════ */
@@ -734,6 +802,7 @@ function weekText() {
   const hi = W.rows.filter(x => x.level === 3), mid = W.rows.filter(x => x.level === 2);
   L.push(`สัปดาห์หน้าต้องดูแลพิเศษ ${hi.length} นาย:`); hi.forEach(x => L.push(`  - ${x.s.no}. ${shortName(x.s)} หมู่ ${x.s.squad} (${x.why.join(', ')})`));
   L.push(`เฝ้าระวัง ${mid.length} นาย:`); mid.forEach(x => L.push(`  - ${x.s.no}. ${shortName(x.s)} หมู่ ${x.s.squad} (${x.why.join(', ')})`));
+  L.push(PDPA_FOOT);
   return L.join('\n');
 }
 function caseModal(id, sid) {
@@ -768,7 +837,7 @@ async function caseSave() {
   try {
     if (E.id) await Store.update('cases/' + E.id, rec);
     else await Store.push('cases', Object.assign(rec, { by: S.me.uid, byName: S.me.name || '', at: Date.now() }));
-    S.modal = null; S.ce = null; toast('บันทึกเคสแล้ว');
+    audit(E.id ? 'แก้ไขเคสผู้ป่วย' : 'เปิดเคสผู้ป่วย', E.sid); S.modal = null; S.ce = null; toast('บันทึกเคสแล้ว');
   } catch (e) { toast('บันทึกไม่ได้: ' + (e.code || e.message)); }
 }
 
@@ -786,6 +855,9 @@ function viewSettings() {
         <div class="field full"><label>ชื่อหน่วยฝึก</label><input class="input" name="unit" value="${esc(st.unit || '')}" placeholder="หน่วยฝึกทหารใหม่ ช.1 พัน.52" ${admin ? '' : 'disabled'}></div>
         <div class="field"><label>ผลัด</label><input class="input" name="cohort" value="${esc(st.cohort || '')}" placeholder="2/69" ${admin ? '' : 'disabled'}></div>
         <div class="field"><label>วันเริ่มฝึก</label><input class="input" type="date" name="start" value="${esc(st.start || '')}" ${admin ? '' : 'disabled'}></div>
+        <div class="field"><label>วันจบการฝึก</label><input class="input" type="date" name="end" value="${esc(st.end || '')}" placeholder="" ${admin ? '' : 'disabled'}><span class="tiny muted">${st.end ? '' : (trainEnd() ? 'ถ้าเว้นว่าง ใช้ ' + thaiDate(trainEnd()) : '')}</span></div>
+        <div class="field"><label>ลบข้อมูลอ่อนไหวหลังจบฝึก (วัน)</label><input class="input" name="retain" inputmode="numeric" value="${esc(st.retain || 30)}" ${admin ? '' : 'disabled'}></div>
+        <div class="field full"><label>ผู้รับผิดชอบ/ติดต่อเรื่องข้อมูลส่วนบุคคล</label><input class="input" name="dpo" value="${esc(st.dpo || '')}" placeholder="เช่น ร.ท.… ผู้ฝึก โทร …" ${admin ? '' : 'disabled'}></div>
         <div class="field full"><label>รอบคัดกรองอุณหภูมิ/สีปัสสาวะ (มาตรการ พบ. ผลัด 2/69: 3 เวลา)</label>
           <div class="row">${ALL_ROUNDS.map(r => `<label class="check" style="padding:4px 10px 4px 0"><input type="checkbox" name="rounds" value="${r}" ${rds.includes(r) ? 'checked' : ''} ${admin ? '' : 'disabled'}><span>${rl(r)} น.</span></label>`).join('')}</div></div>
       </div>
@@ -803,6 +875,7 @@ function viewSettings() {
     ${S.me.role === 'trainer' && Store.mode === 'firebase' ? `<hr class="sep"><div class="field"><label>ล้างข้อมูลหลังซ้อม</label><p class="small muted" style="margin:0 0 8px">ลบรายชื่อ ข้อมูลส่วนบุคคล สุขภาพ ทะเบียนผู้ป่วย ความร้อน และบันทึกลงโทษทั้งหมด และยกเลิกสิทธิ์ผู้ใช้อื่น เหลือบัญชีของคุณคนเดียว · การตั้งค่าหน่วยยังอยู่ · กู้คืนไม่ได้</p><button class="btn danger" data-act="wipeAll">ล้างข้อมูลทั้งหมด</button></div>` : ''}
   </div>
   </div>
+  ${pdpaCard()}
   ${admin && Store.mode === 'firebase' ? `<div class="card" style="margin-top:12px"><div class="card-h"><h2>ผู้ใช้และสิทธิ์</h2><span class="small muted">คนใหม่สมัครเองที่หน้าเข้าสู่ระบบ แล้วกำหนดบทบาทที่นี่</span></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>ชื่อ</th><th>อีเมล</th><th>บทบาท</th></tr></thead><tbody>
     ${users.map(u => `<tr><td>${esc(u.name || '-')}${!u.role ? ' <span class="pill lv2">รออนุมัติ</span>' : ''}</td><td>${esc(u.email || '')}</td><td><select class="input" data-act="setRole" data-uid="${u.uid}" style="min-height:34px;padding:4px 8px" ${u.uid === S.me.uid ? 'disabled' : ''}><option value="">— ไม่มีสิทธิ์ —</option>${Object.entries(ROLES).map(([k, r]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${r.name}</option>`).join('')}</select></td></tr>`).join('')}
@@ -976,6 +1049,7 @@ function intakeModal() {
     <hr class="sep">
     <label class="check"><input type="checkbox" data-act="inSet" data-f="auto" ${I.auto ? 'checked' : ''}><span>จัดหมู่อัตโนมัติ ให้กลุ่มเสี่ยงกระจายเท่ากันทุกหมู่ (เฉพาะคนที่ยังไม่มีหมู่)</span></label>
     ${I.auto ? `<div class="row small"><label for="in-size">ทหารต่อหมู่</label><input class="input num" id="in-size" data-act="inSet" data-f="size" inputmode="numeric" value="${esc(I.size)}" style="width:80px"><span class="muted">→ ${nSq} หมู่</span></div>` : ''}
+    ${can('priv') ? `<div class="field" style="margin-top:10px"><label>เก็บข้อมูลส่วนบุคคลเท่าที่จำเป็น (PDPA) · ติ๊กออกเพื่อไม่นำเข้า</label><div class="row" style="flex-wrap:wrap">${PDPA_GROUPS.map(g => `<label class="check" style="padding:4px 12px 4px 0"><input type="checkbox" data-act="inSet" data-f="k_${g.k}" ${I['k_' + g.k] !== false ? 'checked' : ''}><span>${g.n}</span></label>`).join('')}</div></div>` : ''}
     <p class="tiny muted" style="margin:12px 0 0">ข้อมูลทั่วไป (ทุกบทบาทเห็น): ยศ ชื่อ สกุล ชื่อเล่น อายุ ส่วนสูง น้ำหนัก สีกลุ่มเสี่ยง เหตุผลแบบทั่วไป · ข้อมูลส่วนบุคคล (เฉพาะผู้ฝึก ผบ.หน่วยฝึก เสนารักษ์): เลขบัตร เบอร์โทร ที่อยู่ ชื่อโรค ประวัติสารเสพติด ข้อมูลจิตเวช · นำเข้าซ้ำได้ ระบบจับคู่ตาม ID ของกองพล</p>
     <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-act="close">ยกเลิก</button><button class="btn primary" data-act="inConfirm" ${sel.length ? '' : 'disabled'}>นำเข้า ${sel.length} นาย</button></div>
   </div></div>`;
@@ -1018,8 +1092,10 @@ async function intakeConfirm() {
   const upd = {}; recs.forEach(r => { Object.keys(r.rec).forEach(f => { if (r.rec[f] === '' || r.rec[f] === undefined) r.rec[f] = null; }); upd[r.id] = r.rec; });
   await Store.update('soldiers', upd);
   if (can('priv')) {
-    const pu = {}; recs.forEach(r => { const o = {}; Object.keys(r.p || {}).forEach(f => { if (r.p[f]) o[f] = r.p[f]; }); o.at = Date.now(); pu[r.id] = o; });
+    const allow = PDPA_GROUPS.filter(g => I['k_' + g.k] !== false).flatMap(g => g.f);
+    const pu = {}; recs.forEach(r => { const o = {}; Object.keys(r.p || {}).forEach(f => { if (r.p[f] && allow.includes(f)) o[f] = r.p[f]; }); o.at = Date.now(); pu[r.id] = o; });
     await Store.update('private', pu);
+    audit('นำเข้าข้อมูลส่วนบุคคล', null, `${recs.length} นาย · ${PDPA_GROUPS.filter(g => I['k_' + g.k] !== false).map(g => g.n).join(', ') || 'ไม่มี'}`);
   }
   S.modal = null; S.intake = null; toast(`นำเข้า ${recs.length} นายแล้ว`);
 }
@@ -1071,6 +1147,7 @@ function briefText() {
   L.push(`ส่งพบแพทย์ ${B.docs.length} นาย`); B.docs.forEach(x => L.push(`  - ${x.s.no}. ${shortName(x.s)} (${x.why.join(', ')})`));
   L.push('การฝึกแยกตามสี:'); [3, 2, 1, 0].forEach(lv => L.push(`  ${LV_COLOR[lv].n} (${LV_COLOR[lv].d}) ${B.groups[lv].length} นาย`));
   if (B.flag) L.push(`ธงความร้อน: ${B.flag.flag.n} ดัชนี ${B.flag.hi} (${hm(B.flag.slot)} น.)`);
+  L.push(PDPA_FOOT);
   return L.join('\n');
 }
 function notifyDevice(title, body) {
@@ -1167,14 +1244,23 @@ const actions = {
   away: async el => { const id = el.dataset.id; const cur = ((S.health[S.round] || {})[id] || {}).away; await Store.update(`health/${S.date}/${S.round}/${id}`, Object.assign({ away: cur ? null : true }, stamp())); },
   soldier: el => soldierModal(el.dataset.id),
   wk: el => { S.wk = +el.dataset.w; scheduleRender(); },
-  copyWeek: async () => { const t = weekText(); try { await navigator.clipboard.writeText(t); toast('คัดลอกแล้ว'); } catch (e) { toast('คัดลอกไม่ได้'); } },
+  pdpaAccept: async () => {
+    if (!S.pdpaTick) return;
+    try { if (Store.mode === 'demo') localSet('carenst_pdpa_demo', String(Date.now())); else { await Store.set(`users/${S.me.uid}/pdpaAt`, Date.now()); S.me.pdpaAt = Date.now(); } audit('ยอมรับข้อตกลง PDPA'); scheduleRender(); }
+    catch (e) { toast('บันทึกไม่ได้: ' + (e.code || e.message)); }
+  },
+  copyNotice: async () => { try { await navigator.clipboard.writeText(recruitNotice()); toast('คัดลอกประกาศแล้ว'); } catch (e) { toast('คัดลอกไม่ได้'); } },
+  wipeSensitive: () => askConfirm('ลบข้อมูลอ่อนไหวทั้งหมด? (ข้อมูลส่วนบุคคล + ทะเบียนผู้ป่วย) รายชื่อและสุขภาพรายวันยังอยู่ · กู้คืนไม่ได้', 'ลบข้อมูลอ่อนไหว', async () => {
+    try { await Store.set('private', null); await Store.set('cases', null); audit('ลบข้อมูลอ่อนไหวทั้งหมด'); toast('ลบข้อมูลอ่อนไหวแล้ว'); } catch (e) { toast('ลบไม่สำเร็จ: ' + (e.code || e.message)); }
+  }),
+  copyWeek: async () => { audit('คัดลอกสรุปรายสัปดาห์'); const t = weekText(); try { await navigator.clipboard.writeText(t); toast('คัดลอกแล้ว'); } catch (e) { toast('คัดลอกไม่ได้'); } },
   caseNew: el => caseModal(null, el.dataset.sid || ''),
-  caseEdit: el => caseModal(el.dataset.id),
+  caseEdit: el => { const c = S.cases[el.dataset.id] || {}; audit('เปิดดูเคสผู้ป่วย', c.sid); caseModal(el.dataset.id); },
   ceSent: el => { S.ce.sent = S.ce.sent === el.dataset.v ? '' : el.dataset.v; scheduleRender(); },
   ceStatus: el => { S.ce.status = el.dataset.v; scheduleRender(); },
   caseSave: () => caseSave(),
-  caseDel: el => { const id = el.dataset.id; askConfirm('ลบเคสผู้ป่วยนี้?', 'ลบ', async () => { try { await Store.set('cases/' + id, null); S.ce = null; toast('ลบเคสแล้ว'); } catch (e) { toast('ลบไม่ได้: ' + (e.code || e.message)); } }); },
-  reveal: el => { const id = el.dataset.id; S.reveal[id] = !S.reveal[id]; soldierModal(id); },
+  caseDel: el => { const id = el.dataset.id; askConfirm('ลบเคสผู้ป่วยนี้?', 'ลบ', async () => { try { const sid = (S.cases[id] || {}).sid; await Store.set('cases/' + id, null); audit('ลบเคสผู้ป่วย', sid); S.ce = null; toast('ลบเคสแล้ว'); } catch (e) { toast('ลบไม่ได้: ' + (e.code || e.message)); } }); },
+  reveal: el => { const id = el.dataset.id; S.reveal[id] = !S.reveal[id]; if (S.reveal[id]) audit('ดูข้อมูลส่วนบุคคล', id); soldierModal(id); },
   addSoldier: () => soldierModal(null),
   riskPick: el => { const f = el.closest('form'); f.querySelector('[name=risk]').value = el.dataset.k; f.querySelectorAll('[data-act=riskPick]').forEach(b => b.classList.toggle('on', b === el)); },
   delSoldier: el => { const id = el.dataset.id; askConfirm(`ลบ ${fullName(S.soldiers[id] || {})} ออกจากทะเบียน?`, 'ลบ', async () => { await Store.set('soldiers/' + id, null); if (can('priv')) await Store.set('private/' + id, null); toast('ลบแล้ว'); }); },
@@ -1204,13 +1290,14 @@ const actions = {
     toast('บันทึกแล้ว');
   },
   copyReport: async () => { const t = reportText(); try { await navigator.clipboard.writeText(t); toast('คัดลอกแล้ว วางในไลน์/ฟอร์มได้เลย'); } catch (e) { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); toast('คัดลอกแล้ว'); } catch (e2) { toast('คัดลอกไม่ได้'); } ta.remove(); } },
-  xlsReport: exportReport,
+  xlsReport: () => { audit('ส่งออก Excel รายงานประจำวัน', null, S.date); exportReport(); },
   theme: el => { localSet('carenst_theme', el.dataset.t === 'auto' ? '' : el.dataset.t); applyTheme(); scheduleRender(); },
   wipeAll: () => askConfirm('ล้างข้อมูลทั้งหมด? รายชื่อ สุขภาพ ความร้อน บันทึกลงโทษ และสิทธิ์ผู้ใช้อื่นจะถูกลบถาวร เหลือบัญชีคุณคนเดียว', 'ล้างข้อมูลทั้งหมด', async () => {
     try {
       for (const k of ['private', 'cases', 'soldiers', 'health', 'heat', 'dorm', 'punish']) await Store.set(k, null);
       const others = Object.keys(S.users || {}).filter(uid => uid !== S.me.uid && S.users[uid].role);
       for (const uid of others) await Store.set(`users/${uid}/role`, null);
+      audit('ล้างข้อมูลทั้งหมด', null, `ยกเลิกสิทธิ์ ${others.length} บัญชี`);
       toast(`ล้างข้อมูลแล้ว · ยกเลิกสิทธิ์ ${others.length} บัญชี`);
     } catch (e) { console.error(e); toast('ล้างไม่สำเร็จ: ' + (e.code || e.message)); }
   }),
@@ -1245,6 +1332,7 @@ const changeActions = {
   pChk: el => { S.P[el.dataset.f] = el.checked; scheduleRender(); },
   peSet: el => { S.pe[el.dataset.f] = el.value; },
   ceSet: el => { S.ce[el.dataset.f] = el.value; if (el.tagName === 'SELECT') scheduleRender(); },
+  pdpaTick: el => { S.pdpaTick = el.checked; scheduleRender(); },
   setRole: async el => { await Store.set(`users/${el.dataset.uid}/role`, el.value || null); toast('บันทึกสิทธิ์แล้ว'); },
   demoRole: el => { S.me.role = el.value; localSet('carenst_demo_role', el.value); scheduleRender(); }
 };
@@ -1269,7 +1357,7 @@ const submitActions = {
   saveSettings: async f => {
     const fd = new FormData(f);
     const rds = fd.getAll('rounds'); if (!rds.length) return toast('เลือกรอบตรวจอย่างน้อย 1 รอบ');
-    await Store.update('settings', { unit: String(fd.get('unit') || '').trim(), cohort: String(fd.get('cohort') || '').trim(), start: fd.get('start') || null, rounds: rds });
+    await Store.update('settings', { unit: String(fd.get('unit') || '').trim(), cohort: String(fd.get('cohort') || '').trim(), start: fd.get('start') || null, end: fd.get('end') || null, retain: Math.max(1, Math.min(365, +fd.get('retain') || 30)), dpo: String(fd.get('dpo') || '').trim().slice(0, 160) || null, rounds: rds });
     toast('บันทึกแล้ว');
   },
   login: async f => {
@@ -1327,6 +1415,7 @@ function subscribeBase() {
   baseSubs.push(Store.on('punish', v => { S.punish = v || {}; scheduleRender(); }));
   if (can('priv')) baseSubs.push(Store.on('private', v => { S.priv = v || {}; scheduleRender(); }));
   if (can('priv')) baseSubs.push(Store.on('cases', v => { S.cases = v || {}; scheduleRender(); }));
+  if (can('admin')) baseSubs.push(Store.on('audit', v => { S.audit = v || {}; scheduleRender(); }));
   if (S.view === 'weekly') ensureAllHealth();
   if (can('admin') && Store.mode === 'firebase') baseSubs.push(Store.on('users', v => { S.users = v || {}; scheduleRender(); }));
   subscribeDate();
@@ -1407,7 +1496,7 @@ async function boot() {
     const ref = Store.db.ref('users/' + user.uid);
     const h = snap => {
       const u = snap.val() || {}; const prevRole = S.me && S.me.role;
-      S.me = { uid: user.uid, email: user.email, name: u.name || user.email, role: u.role || null };
+      S.me = { uid: user.uid, email: user.email, name: u.name || user.email, role: u.role || null, pdpaAt: u.pdpaAt || null };
       if (S.me.role !== prevRole) { baseSubs.forEach(x => x()); baseSubs = []; if (ROLES[S.me.role]) subscribeBase(); }
       scheduleRender();
     };
