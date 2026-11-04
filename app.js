@@ -713,7 +713,7 @@ function weekScore(s, days) {
   else if (D.slice(-3).some(x => x.k === 'sick')) { sc += 2; why.push('เพิ่งหายไม่เกิน 3 วัน'); }
   if (s.risk === 'red') { sc += 3; why.push('กลุ่มเสี่ยงแรกรับสีแดง'); }
   else if (s.risk === 'yellow') { sc += 2; why.push('กลุ่มเสี่ยงแรกรับสีเหลือง'); }
-  else if (s.risk === 'green') { sc += 1; why.push('กลุ่มเสี่ยงแรกรับสีเขียว'); }
+  else if (s.risk === 'green') { sc += 1; why.push('กลุ่มสีเขียว (สารเสพติด)'); }
   const b = bmiOf(s); const nextW = (weekOf(days[6]) || 0) + 1;
   if (((b != null && b >= 30) || +s.w >= 100) && nextW <= HOT_WEEKS) { sc += 2; why.push('BMI ≥30/น้ำหนัก ≥100 กก. (เสี่ยงลมร้อน)'); }
   const level = sc >= 8 ? 3 : sc >= 4 ? 2 : sc > 0 ? 1 : 0;
@@ -980,16 +980,17 @@ function analyzeIntake(get) {
   const up = r => { if (SEV[r] > SEV[risk]) risk = r; };
   if ((bmi != null && bmi >= 30) || (w != null && w >= 100)) { up('red'); const t = bmi != null && bmi >= 30 ? `BMI ${bmi}` : `น้ำหนัก ${w} กก.`; why.push(t + ' (สัปดาห์แรก)'); store.push(t + ' (ทบทวนหลังสัปดาห์แรก)'); }
   const dis = get(13); if (!blankish(dis)) { up('yellow'); why.push('โรคประจำตัว: ' + String(dis).trim()); store.push('มีโรคประจำตัว'); }
-  if (bmi != null && bmi < 30 && (bmi >= 28 || bmi < 18)) { up('green'); why.push(`BMI ${bmi}`); store.push(`BMI ${bmi}`); }
+  // สีเขียว = ประวัติสารเสพติดเท่านั้น (ตามที่หน่วยกำหนด) · ปัจจัยอื่นเก็บเป็นหมายเหตุ ไม่ติดสี
+  if (bmi != null && bmi < 30 && (bmi >= 28 || bmi < 18.5)) store.push(`BMI ${bmi}`);
   const alc = String(get(27) || ''), drug = String(get(28) || ''), urine = String(get(29) || '');
-  const beh = [];
-  if (alc.includes('ประจำ')) beh.push('ดื่มแอลกอฮอล์ประจำ');
   // ไฟล์กองพลจริงระบุเป็นชื่อสาร (เช่น กระท่อม, ยาบ้า) ไม่ใช่คำว่า "เคยใช้"
-  if (!blankish(drug) && !drug.trim().startsWith('ไม่เคย')) beh.push('ประวัติใช้สารเสพติด');
-  if (urine.trim() === 'ตรวจพบ') beh.push('ปัสสาวะพบสารเสพติด');
-  if (beh.length) { up('green'); why.push(beh.join(', ')); store.push('ปัจจัยพฤติกรรม (ดูแฟ้มต้นฉบับ)'); }
+  const drugs = [];
+  if (!blankish(drug) && !drug.trim().startsWith('ไม่เคย')) drugs.push('ประวัติใช้สารเสพติด');
+  if (urine.trim() === 'ตรวจพบ') drugs.push('ปัสสาวะพบสารเสพติด');
+  if (drugs.length) { up('green'); why.push(drugs.join(', ')); store.push('สารเสพติด (ดูข้อมูลส่วนบุคคล)'); }
+  if (alc.includes('ประจำ')) store.push('ดื่มแอลกอฮอล์ประจำ');
   const alg = [[14, 'ยา'], [16, 'แมลง']].filter(([j]) => !blankish(get(j)));
-  if (alg.length) { up('green'); why.push('มีประวัติแพ้' + alg.map(x => x[1]).join('/')); store.push('มีประวัติแพ้' + alg.map(x => x[1]).join('/') + ' (ดูข้อมูลส่วนบุคคล)'); }
+  if (alg.length) store.push('มีประวัติแพ้' + alg.map(x => x[1]).join('/') + ' (ดูข้อมูลส่วนบุคคล)');
   const p1 = String(get(19) || '').trim(), p2 = String(get(20) || '').trim();
   const mh = (p1 && !p1.startsWith('ไม่เคย')) || (p2 && !p2.startsWith('ไม่เคย'));
   return { h, w, bmi, risk, why, store, mh };
@@ -1041,7 +1042,7 @@ function intakeModal() {
       <div class="card stat"><div class="k">จะนำเข้า</div><div class="v num">${sel.length}</div><div class="s">นาย</div></div>
       <div class="card stat bad"><div class="k">แดง</div><div class="v num">${cnt('red')}</div><div class="s">งดฝึก ห้ามลงโทษ</div></div>
       <div class="card stat warn"><div class="k">เหลือง</div><div class="v num">${cnt('yellow')}</div><div class="s">ลดการฝึก</div></div>
-      <div class="card stat ok"><div class="k">เขียว</div><div class="v num">${cnt('green')}</div><div class="s">เฝ้าระวังพิเศษ</div></div>
+      <div class="card stat ok"><div class="k">เขียว</div><div class="v num">${cnt('green')}</div><div class="s">ประวัติสารเสพติด</div></div>
       <div class="card stat"><div class="k">ไม่มีสี</div><div class="v num">${cnt('none')}</div><div class="s">ฝึกปกติ</div></div>
       <div class="card stat ${mh.length ? 'warn' : ''}"><div class="k">ติดตามสุขภาพจิต</div><div class="v num">${mh.length}</div><div class="s">ส่งเสนารักษ์</div></div>
     </div>
@@ -1108,7 +1109,7 @@ async function intakeConfirm() {
 /* ════════════════ แจ้งเตือน: สรุปเช้านี้ + ธงความร้อนเปลี่ยน ════════════════ */
 const LV_COLOR = [
   { k: 'none', n: 'ไม่มีสี', d: 'ฝึกปกติ' },
-  { k: 'green', n: 'เขียว', d: 'ฝึกปกติ เฝ้าระวังพิเศษ' },
+  { k: 'green', n: 'เขียว', d: 'ประวัติสารเสพติด เฝ้าระวังพิเศษ' },
   { k: 'yellow', n: 'เหลือง', d: 'ลดการฝึก แยกกลุ่มฝึก' },
   { k: 'red', n: 'แดง', d: 'งดฝึก งดออกกำลังทุกชนิด' }
 ];
