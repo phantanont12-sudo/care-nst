@@ -442,7 +442,7 @@ function privBlock(id) {
   const mask = v => !v ? '-' : (show ? esc(v) : esc(String(v).replace(/.(?=.{4})/g, '•')));
   const row = (k, v) => `<dt>${k}</dt><dd style="font-weight:500;white-space:pre-wrap">${v}</dd>`;
   return `<div class="field full"><div class="alert info" style="display:block"><div class="row" style="justify-content:space-between;margin-bottom:8px"><b>ข้อมูลส่วนบุคคล</b><span class="row tiny muted">เห็นเฉพาะผู้ฝึก ผบ.หน่วยฝึก เสนารักษ์ <button type="button" class="btn sm" data-act="reveal" data-id="${id}">${show ? 'ซ่อน' : 'แสดงทั้งหมด'}</button></span></div>
-    ${Object.keys(p).length ? `<dl class="kv">${row('เลขบัตรประชาชน', mask(p.cid))}${row('เบอร์โทร', mask(p.phone))}${row('ที่อยู่', show ? esc(p.addr || '-') : (p.addr ? '••••' : '-'))}${row('โรคประจำตัว', show ? esc(p.disease || '-') : (p.disease ? '••••' : '-'))}${row('สารเสพติด', show ? esc([p.drug, p.urine && 'ผลปัสสาวะ: ' + p.urine].filter(Boolean).join(' · ') || '-') : '••••')}${row('สุขภาพจิต', show ? esc([p.psych, p.dep].filter(Boolean).join(' · ') || '-') : '••••')}</dl>` : '<div class="small muted">ยังไม่มีข้อมูล นำเข้าจากระบบกองพลเพื่อเติม</div>'}
+    ${Object.keys(p).length ? `<dl class="kv">${row('เลขบัตรประชาชน', mask(p.cid))}${row('เบอร์โทร', mask(p.phone))}${row('ที่อยู่', show ? esc(p.addr || '-') : (p.addr ? '••••' : '-'))}${row('โรคประจำตัว', show ? esc(p.disease || '-') : (p.disease ? '••••' : '-'))}${row('ประวัติแพ้', show ? esc(p.allergy || '-') : (p.allergy ? '••••' : '-'))}${row('สารเสพติด', show ? esc([p.drug, p.urine && 'ผลปัสสาวะ: ' + p.urine].filter(Boolean).join(' · ') || '-') : '••••')}${row('สุขภาพจิต', show ? esc([p.psych, p.dep].filter(Boolean).join(' · ') || '-') : '••••')}</dl>` : '<div class="small muted">ยังไม่มีข้อมูล นำเข้าจากระบบกองพลเพื่อเติม</div>'}
   </div></div>`;
 }
 function soldierModal(id) {
@@ -585,7 +585,7 @@ function viewReport() {
 const PDPA_FOOT = '— ข้อมูลส่วนบุคคล ใช้ภายในสายการบังคับบัญชาเท่านั้น ห้ามส่งต่อ (PDPA)';
 const PDPA_GROUPS = [
   { k: 'cid', n: 'เลขบัตรประชาชน', f: ['cid'] }, { k: 'contact', n: 'เบอร์โทร/ที่อยู่', f: ['phone', 'addr'] },
-  { k: 'health', n: 'โรคประจำตัว', f: ['disease'] }, { k: 'drug', n: 'ประวัติสารเสพติด', f: ['drug', 'urine'] }, { k: 'psych', n: 'สุขภาพจิต', f: ['psych', 'dep'] }
+  { k: 'health', n: 'โรคประจำตัว', f: ['disease'] }, { k: 'allergy', n: 'ประวัติแพ้ยา/อาหาร/แมลง', f: ['allergy'] }, { k: 'drug', n: 'ประวัติสารเสพติด', f: ['drug', 'urine'] }, { k: 'psych', n: 'สุขภาพจิต', f: ['psych', 'dep'] }
 ];
 function trainEnd() { const st = S.settings; return st.end || (st.start ? addDays(st.start, 55) : null); }
 function retainDays() { const n = +S.settings.retain; return n > 0 ? n : 30; }
@@ -947,7 +947,7 @@ function importFile(file) {
  * (คอลัมน์แรก = ID ตามด้วย col0–col63 ของแผ่น Data)
  * วิเคราะห์กลุ่มเสี่ยงตามเกณฑ์ พบ. ในเครื่องนี้ แล้วบันทึกเฉพาะผลลัพธ์ ไม่บันทึกชื่อโรค เลขบัตร เบอร์โทร ที่อยู่ หรือข้อมูลจิตเวช */
 const DIV_LABELS = { 1: ['ยศ'], 2: ['ชื่อ'], 3: ['นามสกุล', 'สกุล'], 4: ['ชื่อเล่น'], 6: ['วันเดือนปีเกิด', 'วันเกิด'], 9: ['ส่วนสูง'], 10: ['น้ำหนัก'],
-  11: ['ดัชนีมวลกาย', 'BMI'], 13: ['โรคประจำตัว'], 19: ['จิตเวช'], 20: ['ซึมเศร้า'], 27: ['แอลกอฮอล์'], 28: ['สารเสพติด'], 29: ['ปัสสาวะ'],
+  11: ['ดัชนีมวลกาย', 'BMI'], 13: ['โรคประจำตัว'], 14: ['แพ้ยา'], 15: ['แพ้อาหาร'], 16: ['แพ้แมลง'], 19: ['จิตเวช'], 20: ['ซึมเศร้า'], 27: ['แอลกอฮอล์'], 28: ['สารเสพติด'], 29: ['ปัสสาวะ'],
   50: ['ปีประจำการ', 'ปี'], 51: ['ผลัด'], 52: ['สังกัด'], 53: ['หน่วยฝึก'] };
 const SEV = { red: 3, yellow: 2, green: 1, none: 0 };
 const blankish = v => { const t = String(v == null ? '' : v).trim(); return !t || t === '-' || t === 'ไม่มี' || t === 'ไม่ระบุ'; };
@@ -984,9 +984,12 @@ function analyzeIntake(get) {
   const alc = String(get(27) || ''), drug = String(get(28) || ''), urine = String(get(29) || '');
   const beh = [];
   if (alc.includes('ประจำ')) beh.push('ดื่มแอลกอฮอล์ประจำ');
-  if (!drug.trim().startsWith('ไม่เคย') && /เคยใช้|ยังคงใช้|ยังใช้/.test(drug)) beh.push('ประวัติใช้สารเสพติด');
+  // ไฟล์กองพลจริงระบุเป็นชื่อสาร (เช่น กระท่อม, ยาบ้า) ไม่ใช่คำว่า "เคยใช้"
+  if (!blankish(drug) && !drug.trim().startsWith('ไม่เคย')) beh.push('ประวัติใช้สารเสพติด');
   if (urine.trim() === 'ตรวจพบ') beh.push('ปัสสาวะพบสารเสพติด');
   if (beh.length) { up('green'); why.push(beh.join(', ')); store.push('ปัจจัยพฤติกรรม (ดูแฟ้มต้นฉบับ)'); }
+  const alg = [[14, 'ยา'], [16, 'แมลง']].filter(([j]) => !blankish(get(j)));
+  if (alg.length) { up('green'); why.push('มีประวัติแพ้' + alg.map(x => x[1]).join('/')); store.push('มีประวัติแพ้' + alg.map(x => x[1]).join('/') + ' (ดูข้อมูลส่วนบุคคล)'); }
   const p1 = String(get(19) || '').trim(), p2 = String(get(20) || '').trim();
   const mh = (p1 && !p1.startsWith('ไม่เคย')) || (p2 && !p2.startsWith('ไม่เคย'));
   return { h, w, bmi, risk, why, store, mh };
@@ -1002,7 +1005,8 @@ function parseDivision(rows, fileName) {
     const a = analyzeIntake(get);
     const tx = j => { const v = String(get(j) == null ? '' : get(j)).trim(); return v && v !== '-' ? v : ''; };
     a.p = { cid: tx(5), phone: tx(39), addr: [tx(31) && 'บ้านเลขที่ ' + tx(31), tx(32) && 'หมู่ ' + tx(32), tx(33), tx(34), tx(35) && 'ต.' + tx(35), tx(36) && 'อ.' + tx(36), tx(37) && 'จ.' + tx(37), tx(38)].filter(Boolean).join(' '),
-      disease: tx(13), drug: tx(28), urine: tx(29), psych: tx(19), dep: tx(20) };
+      disease: tx(13), drug: tx(28), urine: tx(29), psych: tx(19), dep: tx(20),
+      allergy: [[14, 'ยา'], [15, 'อาหาร'], [16, 'แมลง']].filter(([j]) => tx(j) && !blankish(tx(j))).map(([j, n]) => n + ': ' + tx(j)).join(' · ') };
     out.push(Object.assign(a, {
       key: String(C.ref >= 0 ? r[C.ref] : '').trim() || 'row' + (i + 2),
       ref: String(C.ref >= 0 ? r[C.ref] : '').trim(),
