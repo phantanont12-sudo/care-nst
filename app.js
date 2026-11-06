@@ -357,7 +357,8 @@ function viewHealth() {
   const done = list.filter(s => rec(s.id).t != null || rec(s.id).away).length;
   return `
   <div class="page-h"><div><h1>สุขภาพประจำวัน</h1><div class="muted small">อุณหภูมิร่างกาย + สีปัสสาวะ · บันทึกทันทีที่กรอก</div></div>
-    <div class="seg" role="tablist">${rds.map(r => `<button data-act="round" data-r="${r}" class="${r === rd ? 'on' : ''}">${rl(r)} น.</button>`).join('')}</div></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap"><div class="seg" role="tablist">${rds.map(r => `<button data-act="round" data-r="${r}" class="${r === rd ? 'on' : ''}">${rl(r)} น.</button>`).join('')}</div>
+    ${canEdit ? `<button class="btn" data-act="omrPrintOpen">${ic('dl')}พิมพ์ใบบันทึก</button><label class="btn primary">${ic('ul')}ถ่ายรูปใบบันทึก<input type="file" accept="image/*" capture="environment" data-act="omrFile" hidden></label>` : ''}</div></div>
   <div class="card" style="padding:12px;margin-bottom:12px">
     <div class="row" style="justify-content:space-between;margin-bottom:8px"><span class="small">กรอกแล้ว <b class="num">${done}/${list.length}</b> นาย</span><span class="tiny muted">36.8–37.2 = เหลือง วัดซ้ำใน 30 นาที · เกิน 37.2 = งดฝึก นำส่ง รพ. · ปัสสาวะ 3–4 = งดฝึก</span></div>
     <div class="progress"><i style="width:${list.length ? done / list.length * 100 : 0}%"></i></div>
@@ -1416,6 +1417,247 @@ function localSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 function applyTheme() { const t = localGet('carenst_theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme; }
 const stamp = () => ({ by: S.me.uid, byName: S.me.name || '', at: Date.now() });
 
+/* ════════════════ ใบบันทึกกระดาษแบบระบายวงกลม (พิมพ์ → ระบาย → ถ่ายรูป → อ่านในเครื่อง ไม่ส่งรูปออก) ════════════════ */
+const OMR = (() => {
+  const L = { fid: 8, fids: [[14, 14], [196, 14], [14, 283], [196, 283]], bitY: 14, bitX0: 40, bitStep: 5.5, nBits: 24,
+    rowY0: 46, rowH: 9.2, perPage: 25, r: 2.1, rIn: 1.15, paper: [[105, 7], [205, 150], [5, 150], [100, 294]] };
+  const cols = []; let x = 68;
+  const group = (g, labels, step) => { labels.forEach((lb, i) => cols.push({ g, v: i, lb, x: x + i * step })); x += labels.length * step + 2.2; };
+  group('T', ['35', '36', '37', '38', '39'], 5.2);
+  group('D', ['.0', '.1', '.2', '.3', '.4', '.5', '.6', '.7', '.8', '.9'], 5.2);
+  group('U', ['0', '1', '2', '3', '4'], 5.2);
+  group('A', ['ไม่อยู่'], 6.4); group('K', ['พบแพทย์'], 6.4);
+  L.cols = cols; L.x1 = x;
+  return L;
+})();
+const OMR_EPOCH = '2026-01-01';
+function omrEncode(date, round, sqIdx, page) {
+  const day = daysBetween(OMR_EPOCH, date); const ri = Math.max(0, ALL_ROUNDS.indexOf(round));
+  const v = [[day, 10], [ri, 2], [sqIdx, 6], [page, 2]]; const bits = [];
+  v.forEach(([n, w]) => { for (let i = w - 1; i >= 0; i--) bits.push((n >> i) & 1); });
+  const cs = bits.reduce((a, b) => a + b, 0) % 16; for (let i = 3; i >= 0; i--) bits.push((cs >> i) & 1);
+  return bits;
+}
+function omrDecode(bits) {
+  const take = (a, b) => bits.slice(a, b).reduce((n, x) => n * 2 + x, 0);
+  const cs = bits.slice(0, 20).reduce((a, b) => a + b, 0) % 16; if (cs !== take(20, 24)) return null;
+  const date = addDays(OMR_EPOCH, take(0, 10)); const round = ALL_ROUNDS[take(10, 12)]; const sqIdx = take(12, 18); const page = take(18, 20);
+  return round ? { date, round, sqIdx, page } : null;
+}
+const omrSqKey = idx => idx === 63 ? 'all' : squads()[idx];
+function omrRoster(sqKey, page) {
+  const list = soldierList().filter(s => sqKey === 'all' || String(s.squad) === String(sqKey)).sort((a, b) => (+a.no || 0) - (+b.no || 0));
+  return list.slice(page * OMR.perPage, (page + 1) * OMR.perPage);
+}
+function omrSheetsHTML(date, round, sqKeys) {
+  const unit = S.settings.unit || 'หน่วยฝึกทหารใหม่'; const pages = [];
+  sqKeys.forEach(sq => {
+    const all = soldierList().filter(s => sq === 'all' || String(s.squad) === String(sq)); const n = Math.max(1, Math.ceil(all.length / OMR.perPage));
+    for (let p = 0; p < Math.min(n, 4); p++) pages.push({ sq, p, n, rows: omrRoster(sq, p) });
+  });
+  const mm = v => v.toFixed(2) + 'mm';
+  const page = pg => {
+    const sqIdx = pg.sq === 'all' ? 63 : squads().indexOf(pg.sq); const bits = omrEncode(date, round, sqIdx, pg.p);
+    let h = OMR.fids.map(([cx, cy]) => `<div class="fid" style="left:${mm(cx - OMR.fid / 2)};top:${mm(cy - OMR.fid / 2)}"></div>`).join('');
+    h += bits.map((b, i) => `<div class="bit ${b ? 'on' : ''}" style="left:${mm(OMR.bitX0 + i * OMR.bitStep - 1.5)};top:${mm(OMR.bitY - 1.5)}"></div>`).join('');
+    h += `<div class="ttl" style="left:20mm;top:20mm">ใบบันทึกสุขภาพประจำวัน · ${esc(unit)}</div>
+      <div class="meta" style="left:20mm;top:27.5mm">วันที่ <b>${thaiDate(date, true)}</b> · รอบ <b>${rl(round)} น.</b> · ${pg.sq === 'all' ? 'ทุกหมู่' : 'หมู่ <b>' + esc(pg.sq) + '</b>'}${pg.n > 1 ? ` · แผ่น ${pg.p + 1}/${pg.n}` : ''} · ผู้บันทึก ...............................</div>
+      <div class="hint" style="left:20mm;top:32.6mm">ระบายวงกลมให้เต็มด้วยปากกาสีเข้ม 1 วงต่อกลุ่ม · อุณหภูมิ = หลักหน่วย + ทศนิยม (เช่น 36 กับ .8 = 36.8) · ห้ามพับหรือเขียนทับสี่เหลี่ยมดำ</div>`;
+    const gx = g => OMR.cols.filter(c => c.g === g); const gl = { T: 'อุณหภูมิ °C', D: 'ทศนิยม', U: 'สีปัสสาวะ', A: '', K: '' };
+    ['T', 'D', 'U'].forEach(g => { const c = gx(g); h += `<div class="gh" style="left:${mm(c[0].x - 2.7)};width:${mm(c[c.length - 1].x - c[0].x + 5.4)};top:${mm(OMR.rowY0 - 10)}">${gl[g]}</div>`; });
+    OMR.cols.forEach(c => { const sm = c.g === 'A' || c.g === 'K'; h += `<div class="ch ${sm ? 'sm' : ''}" style="left:${mm(c.x - (sm ? 4.5 : 3.2))};top:${mm(OMR.rowY0 - 4.8)}">${c.lb}</div>`; });
+    for (let i = 0; i < OMR.perPage; i++) {
+      const s = pg.rows[i]; const y = OMR.rowY0 + i * OMR.rowH; const cy = y + OMR.rowH / 2;
+      h += `<div class="row ${i % 2 ? 'alt' : ''}" style="top:${mm(y)}"></div>`;
+      if (!s) continue;
+      h += `<div class="no" style="top:${mm(cy - 2.2)}">${esc(s.no)}</div><div class="nm" style="top:${mm(cy - 2.2)}">${esc(shortName(s))}</div>`;
+      OMR.cols.forEach(c => { h += `<div class="bub" style="left:${mm(c.x - OMR.r)};top:${mm(cy - OMR.r)}"></div>`; });
+    }
+    h += `<div class="ft" style="left:20mm;top:288mm">CARE-NST · ถ่ายรูปให้เห็นสี่เหลี่ยมดำครบ 4 มุม · ข้อมูลส่วนบุคคล ใช้ภายในหน่วย (PDPA)</div>`;
+    return `<section class="pg">${h}</section>`;
+  };
+  return `<!doctype html><html lang="th"><head><meta charset="utf-8"><title>ใบบันทึกสุขภาพ ${date} ${rl(round)}</title>
+  <style>@page{size:A4;margin:0}html,body{margin:0;padding:0;background:#fff;color:#000;font-family:'IBM Plex Sans Thai','Sarabun',system-ui,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .pg{position:relative;width:210mm;height:297mm;overflow:hidden;page-break-after:always;break-after:page}
+  .pg>div{position:absolute}.fid{width:${OMR.fid}mm;height:${OMR.fid}mm;background:#000}.bit{width:3mm;height:3mm;border:.25mm solid #000;box-sizing:border-box}.bit.on{background:#000}
+  .ttl{font-size:14pt;font-weight:700}.meta{font-size:10.5pt}.hint{font-size:8pt;color:#333}.gh{font-size:8pt;text-align:center;border-bottom:.3mm solid #000}
+  .ch{width:6.4mm;text-align:center;font-size:7.5pt}.ch.sm{font-size:5.6pt;width:9mm;white-space:nowrap}.row{left:15mm;width:${(OMR.x1 - 15).toFixed(1)}mm;height:${OMR.rowH}mm;border-bottom:.2mm solid #bbb}.row.alt{background:#f2f2f2}
+  .no{left:15.5mm;width:8mm;text-align:right;font-size:9pt}.nm{left:26mm;width:40mm;font-size:9pt;white-space:nowrap;overflow:hidden}
+  .bub{width:${OMR.r * 2}mm;height:${OMR.r * 2}mm;border:.25mm solid #444;border-radius:50%;box-sizing:border-box;background:#fff}.ft{font-size:7pt;color:#444}
+  @media screen{body{background:#888}.pg{background:#fff;margin:10px auto;box-shadow:0 2px 8px rgba(0,0,0,.4)}}</style></head>
+  <body>${pages.map(page).join('')}<script>setTimeout(function(){window.print()},600)<\/script></body></html>`;
+}
+function omrPrint(round, sqKeys) {
+  const html = omrSheetsHTML(S.date, round, sqKeys);
+  const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  const w = window.open(url, '_blank'); if (!w) { location.href = url; }
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  audit('พิมพ์ใบบันทึกสุขภาพ', null, `${S.date} ${rl(round)}`);
+}
+/* ── อ่านภาพ ── */
+function omrSolveH(src, dst) {
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) { const [x, y] = src[i], [u, v] = dst[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u); A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v); }
+  for (let c = 0; c < 8; c++) { let p = c; for (let r = c + 1; r < 8; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    [A[c], A[p]] = [A[p], A[c]]; [b[c], b[p]] = [b[p], b[c]]; if (Math.abs(A[c][c]) < 1e-12) return null;
+    for (let r = 0; r < 8; r++) { if (r === c) continue; const f = A[r][c] / A[c][c]; for (let k = c; k < 8; k++) A[r][k] -= f * A[c][k]; b[r] -= f * b[c]; } }
+  const h = b.map((v, i) => v / A[i][i]); h.push(1); return h;
+}
+const omrMap = (H, x, y) => { const w = H[6] * x + H[7] * y + 1; return [(H[0] * x + H[1] * y + H[2]) / w, (H[3] * x + H[4] * y + H[5]) / w]; };
+async function omrReadImage(file) {
+  const bmp = await createImageBitmap(file);
+  const sc = Math.min(1, 1800 / Math.max(bmp.width, bmp.height)); const W = Math.round(bmp.width * sc), Hh = Math.round(bmp.height * sc);
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = Hh; const cx = cv.getContext('2d', { willReadFrequently: true });
+  cx.drawImage(bmp, 0, 0, W, Hh); if (bmp.close) bmp.close();
+  const px = cx.getImageData(0, 0, W, Hh).data; const g = new Float32Array(W * Hh);
+  for (let i = 0, j = 0; i < g.length; i++, j += 4) g[i] = 0.299 * px[j] + 0.587 * px[j + 1] + 0.114 * px[j + 2];
+  // threshold แบบปรับตามแสงในพื้นที่ (integral image)
+  const I = new Float64Array((W + 1) * (Hh + 1));
+  for (let y = 0; y < Hh; y++) { let row = 0; for (let x = 0; x < W; x++) { row += g[y * W + x]; I[(y + 1) * (W + 1) + x + 1] = I[y * (W + 1) + x + 1] + row; } }
+  const R = Math.max(8, Math.round(Math.max(W, Hh) / 30)); const bin = new Uint8Array(W * Hh);
+  for (let y = 0; y < Hh; y++) for (let x = 0; x < W; x++) {
+    const x0 = Math.max(0, x - R), y0 = Math.max(0, y - R), x1 = Math.min(W, x + R + 1), y1 = Math.min(Hh, y + R + 1);
+    const sum = I[y1 * (W + 1) + x1] - I[y0 * (W + 1) + x1] - I[y1 * (W + 1) + x0] + I[y0 * (W + 1) + x0];
+    bin[y * W + x] = g[y * W + x] < (sum / ((x1 - x0) * (y1 - y0))) * 0.78 ? 1 : 0;
+  }
+  // หา "สี่เหลี่ยมดำ" 4 มุม
+  const lab = new Int32Array(W * Hh); const comps = []; const stack = new Int32Array(W * Hh); let id = 0;
+  for (let p = 0; p < bin.length; p++) {
+    if (!bin[p] || lab[p]) continue; id++; let sp = 0; stack[sp++] = p; lab[p] = id;
+    let n = 0, sx = 0, sy = 0, minx = W, maxx = 0, miny = Hh, maxy = 0;
+    while (sp) { const q = stack[--sp]; const qx = q % W, qy = (q - qx) / W; n++; sx += qx; sy += qy;
+      if (qx < minx) minx = qx; if (qx > maxx) maxx = qx; if (qy < miny) miny = qy; if (qy > maxy) maxy = qy;
+      if (qx > 0 && bin[q - 1] && !lab[q - 1]) { lab[q - 1] = id; stack[sp++] = q - 1; }
+      if (qx < W - 1 && bin[q + 1] && !lab[q + 1]) { lab[q + 1] = id; stack[sp++] = q + 1; }
+      if (qy > 0 && bin[q - W] && !lab[q - W]) { lab[q - W] = id; stack[sp++] = q - W; }
+      if (qy < Hh - 1 && bin[q + W] && !lab[q + W]) { lab[q + W] = id; stack[sp++] = q + W; } }
+    const w = maxx - minx + 1, h = maxy - miny + 1;
+    if (w >= 8 && h >= 8 && w / h > 0.5 && w / h < 2 && n / (w * h) > 0.5 && n < W * Hh * 0.02) comps.push({ n, x: sx / n, y: sy / n, w, h });
+  }
+  if (comps.length < 4) throw new Error('หาสี่เหลี่ยมดำ 4 มุมไม่เจอ ถ่ายใหม่ให้เห็นครบทั้งแผ่นและมีแสงพอ');
+  comps.sort((a, b) => b.n - a.n); const big = comps.filter(c => c.n >= comps[0].n * 0.2).slice(0, 12);
+  if (big.length < 4) throw new Error('หาสี่เหลี่ยมดำ 4 มุมไม่ครบ ถ่ายใหม่ให้เห็นครบทั้งแผ่น');
+  // เลือก 4 จุดที่ล้อมพื้นที่ได้มากที่สุด แล้วเรียงตามเข็มนาฬิกา
+  const area = q => { let A = 0; for (let i = 0; i < q.length; i++) { const a = q[i], b = q[(i + 1) % q.length]; A += a.x * b.y - b.x * a.y; } return Math.abs(A) / 2; };
+  const order = q => { const mx = q.reduce((a, c) => a + c.x, 0) / 4, my = q.reduce((a, c) => a + c.y, 0) / 4; return q.slice().sort((a, b) => Math.atan2(a.y - my, a.x - mx) - Math.atan2(b.y - my, b.x - mx)); };
+  let best = null, bestA = 0;
+  for (let i = 0; i < big.length; i++) for (let j = i + 1; j < big.length; j++) for (let k = j + 1; k < big.length; k++) for (let l = k + 1; l < big.length; l++) {
+    const q = order([big[i], big[j], big[k], big[l]]); const ns = q.map(c => c.n); if (Math.max(...ns) > Math.min(...ns) * 4) continue;
+    const A = area(q); if (A > bestA) { bestA = A; best = q; } }
+  if (!best || bestA < W * Hh * 0.08) throw new Error('สี่เหลี่ยมดำเล็กเกินไป ถ่ายใกล้ขึ้นให้กระดาษเต็มภาพ');
+  const sampleWith = H => (mx, my, rmm) => {
+    const [cxp, cyp] = omrMap(H, mx, my); const [ex, ey] = omrMap(H, mx + rmm, my); const rp = Math.max(1.5, Math.hypot(ex - cxp, ey - cyp));
+    let s = 0, n = 0; for (let dy = -rp; dy <= rp; dy += 1) for (let dx = -rp; dx <= rp; dx += 1) { if (dx * dx + dy * dy > rp * rp) continue;
+      const xx = Math.round(cxp + dx), yy = Math.round(cyp + dy); if (xx < 0 || yy < 0 || xx >= W || yy >= Hh) continue; s += g[yy * W + xx]; n++; }
+    return n ? 255 - s / n : 0;
+  };
+  const tries = [0, 1, 2, 3].map(st => { const q = [0, 1, 2, 3].map(i => best[(st + i) % 4]); // TL TR BR BL
+    const H = omrSolveH(OMR.fids, [[q[0].x, q[0].y], [q[1].x, q[1].y], [q[3].x, q[3].y], [q[2].x, q[2].y]]); if (!H) return null;
+    const sm = sampleWith(H); const ink = OMR.fids.map(([x, y]) => sm(x, y, 2)).sort((a, b) => a - b)[1];
+    const paper = OMR.paper.map(([x, y]) => sm(x, y, 1.5)).sort((a, b) => a - b)[1]; const C = Math.max(30, ink - paper);
+    const bits = Array.from({ length: OMR.nBits }, (_, i) => (sm(OMR.bitX0 + i * OMR.bitStep, OMR.bitY, 0.9) - paper) > C * 0.5 ? 1 : 0);
+    const top = Math.hypot(q[1].x - q[0].x, q[1].y - q[0].y), side = Math.hypot(q[3].x - q[0].x, q[3].y - q[0].y);
+    return { q, H, sm, paper, C, bits, meta: omrDecode(bits), portrait: top < side, tl: q[0].x + q[0].y }; }).filter(Boolean);
+  const T0 = tries.find(t => t.meta) || tries.filter(t => t.portrait).sort((a, b) => a.tl - b.tl)[0] || tries[0];
+  if (!T0) throw new Error('คำนวณมุมกระดาษไม่ได้');
+  const [TL, TR, BR, BL] = T0.q; const Hm = T0.H; const sample = T0.sm; const paper = T0.paper; const C = T0.C;
+  const bits = Array.from({ length: OMR.nBits }, (_, i) => (sample(OMR.bitX0 + i * OMR.bitStep, OMR.bitY, 0.9) - paper) > C * 0.5 ? 1 : 0);
+  const rows = [];
+  for (let i = 0; i < OMR.perPage; i++) {
+    const cy = OMR.rowY0 + i * OMR.rowH + OMR.rowH / 2;
+    const d = OMR.cols.map(c => sample(c.x, cy, OMR.rIn));
+    const sorted = d.slice().sort((a, b) => a - b); const base = sorted[Math.floor(sorted.length * 0.3)];
+    const thr = C * 0.3;
+    const pickG = gk => { const idx = OMR.cols.map((c, j) => j).filter(j => OMR.cols[j].g === gk); const v = idx.map(j => d[j] - base);
+      const order = v.map((x, k) => [x, k]).sort((a, b) => b[0] - a[0]); const [top, k1] = order[0]; const sec = order[1] ? order[1][0] : -1;
+      if (top < thr) return { v: null }; if (sec >= Math.max(thr, top * 0.5)) return { v: null, amb: true }; return { v: OMR.cols[idx[k1]].v }; };
+    const T = pickG('T'), D = pickG('D'), U = pickG('U');
+    const A = (d[OMR.cols.findIndex(c => c.g === 'A')] - base) > thr, K = (d[OMR.cols.findIndex(c => c.g === 'K')] - base) > thr;
+    const t = T.v != null && D.v != null ? 35 + T.v + D.v / 10 : null;
+    const amb = !!(T.amb || D.amb || U.amb || ((T.v == null) !== (D.v == null)));
+    rows.push({ t: t != null ? Math.round(t * 10) / 10 : null, u: U.v, away: A, doc: K, amb, any: t != null || U.v != null || A || K || amb });
+  }
+  // ภาพตรวจสอบ: จุดเขียว = อ่านว่าระบาย
+  cx.lineWidth = 2;
+  rows.forEach((r, i) => { const cy = OMR.rowY0 + i * OMR.rowH + OMR.rowH / 2; if (!r.any) return;
+    const [ax, ay] = omrMap(Hm, 15, cy); cx.strokeStyle = r.amb ? '#e0301e' : '#1aa34a'; cx.strokeRect(ax - 4, ay - 6, 8, 12); });
+  [TL, TR, BL, BR].forEach(c => { cx.strokeStyle = '#1aa34a'; cx.strokeRect(c.x - c.w / 2 - 3, c.y - c.h / 2 - 3, c.w + 6, c.h + 6); });
+  const sc2 = Math.min(1, 700 / Math.max(W, Hh)); const pv = document.createElement('canvas'); pv.width = Math.round(W * sc2); pv.height = Math.round(Hh * sc2);
+  pv.getContext('2d').drawImage(cv, 0, 0, pv.width, pv.height);
+  return { meta: omrDecode(bits), rows, preview: pv.toDataURL('image/jpeg', 0.6) };
+}
+async function omrFile(file) {
+  if (!file) return;
+  toast('กำลังอ่านใบบันทึก…');
+  try {
+    const R = await omrReadImage(file);
+    const m = R.meta || { date: S.date, round: S.round || rounds()[0], sqIdx: S.squad === 'all' ? 63 : Math.max(0, squads().indexOf(S.squad)), page: 0 };
+    S.omr = Object.assign({ metaOk: !!R.meta, rows: R.rows, preview: R.preview }, m);
+    omrBuild(); S.modal = omrModal; scheduleRender();
+  } catch (e) { console.error(e); toast(e.message || 'อ่านรูปไม่ได้'); }
+}
+function omrBuild() {
+  const O = S.omr; const roster = omrRoster(omrSqKey(O.sqIdx) || 'all', O.page);
+  O.items = O.rows.map((r, i) => roster[i] ? Object.assign({ sid: roster[i].id, use: r.any && !r.amb }, r, { t: r.t != null ? r.t.toFixed(1) : '' }) : null).filter(x => x && (x.any));
+  O.empty = roster.length - O.items.length;
+}
+function omrModal() {
+  const O = S.omr; if (!O) return '';
+  const sqName = omrSqKey(O.sqIdx); const amb = O.items.filter(x => x.amb).length;
+  return `<div class="ov" data-act="closeOv"><div class="sheet" role="dialog" aria-modal="true" aria-label="ตรวจผลอ่านใบบันทึก" style="max-width:860px">
+    <div class="sheet-h"><div><h2>ตรวจผลอ่านใบบันทึก</h2><div class="tiny muted">${O.metaOk ? 'อ่านรหัสใบได้' : '<b style="color:var(--bad)">อ่านรหัสใบไม่ได้ — ตรวจวันที่ รอบ และหมู่ด้านล่าง</b>'} · รูปอ่านในเครื่องนี้ ไม่ถูกส่งออก</div></div><button class="x" data-act="close" aria-label="ปิด">×</button></div>
+    <div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <div class="field"><label>วันที่</label><input class="input" type="date" data-act="omrSet" data-f="date" value="${esc(O.date)}"></div>
+      <div class="field"><label>รอบ</label><select class="input" data-act="omrSet" data-f="round">${ALL_ROUNDS.map(r => `<option value="${r}" ${r === O.round ? 'selected' : ''}>${rl(r)} น.</option>`).join('')}</select></div>
+      <div class="field"><label>หมู่</label><select class="input" data-act="omrSet" data-f="sqIdx"><option value="63" ${O.sqIdx === 63 ? 'selected' : ''}>ทุกหมู่</option>${squads().map((q, i) => `<option value="${i}" ${O.sqIdx === i ? 'selected' : ''}>หมู่ ${esc(q)}</option>`).join('')}</select></div>
+      <div class="field"><label>แผ่นที่</label><select class="input" data-act="omrSet" data-f="page">${[0, 1, 2, 3].map(p => `<option value="${p}" ${O.page === p ? 'selected' : ''}>${p + 1}</option>`).join('')}</select></div>
+    </div>
+    <div class="grid" style="grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);gap:12px;align-items:start">
+      <img src="${O.preview}" alt="ภาพที่อ่าน" style="width:100%;border-radius:8px;border:1px solid var(--line)">
+      <div>
+        <p class="small" style="margin:0 0 8px">อ่านได้ <b>${O.items.length}</b> นาย${amb ? ` · <b style="color:var(--bad)">ไม่ชัด ${amb} นาย</b> (ระบายเกิน 1 วงหรือจาง) กรอกเองแล้วติ๊ก "บันทึก"` : ''} · ไม่ได้ระบาย ${O.empty} นาย${sqName ? '' : ' · <b>ไม่พบหมู่นี้</b>'}</p>
+        <div class="tbl-wrap" style="max-height:52vh;overflow:auto"><table class="tbl"><thead><tr><th>บันทึก</th><th>ชื่อ</th><th>อุณหภูมิ</th><th>ปัสสาวะ</th><th>ไม่อยู่</th><th>พบแพทย์</th></tr></thead><tbody>
+        ${O.items.map((x, i) => { const s = S.soldiers[x.sid] || {}; return `<tr style="${x.amb ? 'background:var(--bad-bg,#fde8e6)' : ''}"><td><input type="checkbox" data-act="omrRow" data-i="${i}" data-f="use" ${x.use ? 'checked' : ''}></td>
+          <td>${esc(s.no)}. ${esc(shortName(s))}${x.amb ? ' <span class="pill lv3">ไม่ชัด</span>' : ''}</td>
+          <td><input class="input num" style="width:76px;min-height:34px" inputmode="decimal" data-act="omrRow" data-i="${i}" data-f="t" value="${esc(x.t)}"></td>
+          <td><select class="input" style="min-height:34px;width:70px;padding:4px 8px" data-act="omrRow" data-i="${i}" data-f="u"><option value="">-</option>${[0, 1, 2, 3, 4].map(u => `<option value="${u}" ${x.u === u ? 'selected' : ''}>${u}</option>`).join('')}</select></td>
+          <td><input type="checkbox" data-act="omrRow" data-i="${i}" data-f="away" ${x.away ? 'checked' : ''}></td><td><input type="checkbox" data-act="omrRow" data-i="${i}" data-f="doc" ${x.doc ? 'checked' : ''}></td></tr>`; }).join('')}
+        </tbody></table></div>
+      </div>
+    </div>
+    <div class="row" style="justify-content:space-between;margin-top:14px"><span class="tiny muted">ข้อมูลเดิมของรอบนั้นจะถูกแทนเฉพาะช่องที่มีค่า</span><div class="row"><button class="btn" data-act="close">ยกเลิก</button><button class="btn primary" data-act="omrSave">บันทึก ${O.items.filter(x => x.use).length} นาย</button></div></div>
+  </div></div>`;
+}
+async function omrSave() {
+  const O = S.omr; if (!O) return; const upd = {}; let n = 0, bad = 0;
+  O.items.filter(x => x.use).forEach(x => {
+    const t = x.t === '' ? null : num(String(x.t).replace(',', '.'));
+    if (t != null && (t < 34 || t > 43)) { bad++; return; }
+    const st = stamp(); const p = x.sid + '/';
+    if (t != null) upd[p + 't'] = t; if (x.u != null && x.u !== '') upd[p + 'u'] = +x.u;
+    if (x.away) upd[p + 'away'] = true; if (x.doc) upd[p + 'doc'] = true;
+    upd[p + 'by'] = st.by; upd[p + 'byName'] = st.byName; upd[p + 'at'] = st.at; upd[p + 'src'] = 'ใบบันทึก'; n++;
+  });
+  if (bad) return toast(`อุณหภูมิไม่ถูกต้อง ${bad} แถว (34–43 °C)`);
+  if (!n) return toast('ยังไม่ได้เลือกแถวที่จะบันทึก');
+  try {
+    await Store.update(`health/${O.date}/${O.round}`, upd);
+    audit('บันทึกจากใบบันทึกกระดาษ', null, `${O.date} ${rl(O.round)} · ${n} นาย`);
+    S.modal = null; S.omr = null; toast(`บันทึกจากใบบันทึกแล้ว ${n} นาย`);
+  } catch (e) { toast('บันทึกไม่ได้: ' + (e.code || e.message)); }
+}
+function omrPrintModal() {
+  const P = S.omrP; const sq = squads();
+  return `<div class="ov" data-act="closeOv"><div class="sheet" role="dialog" aria-modal="true" aria-label="พิมพ์ใบบันทึก">
+    <div class="sheet-h"><div><h2>พิมพ์ใบบันทึกสุขภาพ</h2><div class="tiny muted">${thaiDate(S.date, true)} · A4 ใบละไม่เกิน ${OMR.perPage} นาย</div></div><button class="x" data-act="close" aria-label="ปิด">×</button></div>
+    <div class="field"><label>รอบ</label><div class="seg">${rounds().map(r => `<button type="button" data-act="omrPR" data-r="${r}" class="${P.round === r ? 'on' : ''}">${rl(r)} น.</button>`).join('')}</div></div>
+    <div class="field" style="margin-top:10px"><label>หมู่ (เลือกได้หลายหมู่ · หมู่ละแผ่น)</label><div class="chips" style="flex-wrap:wrap">${['all'].concat(sq).map(q => `<button type="button" class="fchip ${P.sq.includes(q) ? 'on' : ''}" data-act="omrPS" data-q="${esc(q)}">${q === 'all' ? 'ทุกหมู่ (เรียงตามลำดับ)' : 'หมู่ ' + esc(q)}</button>`).join('')}</div></div>
+    <p class="tiny muted" style="margin:10px 0 0">พิมพ์แบบ "ขนาดจริง/100%" ไม่ต้องย่อ · ระบายด้วยปากกาสีน้ำเงินเข้มหรือดำ · ถ่ายรูปตรง ๆ ให้เห็นสี่เหลี่ยมดำครบ 4 มุม</p>
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-act="close">ยกเลิก</button><button class="btn primary" data-act="omrPrintGo" ${P.sq.length ? '' : 'disabled'}>พิมพ์ ${P.sq.length} ชุด</button></div>
+  </div></div>`;
+}
+
 async function saveTemp(id, val) {
   const key = `t-${id}`;
   if (val === '') { delete S.drafts[key]; await Store.update(`health/${S.date}/${S.round}/${id}`, Object.assign({ t: null }, stamp())); return; }
@@ -1445,6 +1687,11 @@ const actions = {
   wk: el => { S.wk = +el.dataset.w; scheduleRender(); },
   ordUnlink: el => { const O = S.ord; const f = O.F.find(x => String(x.no) === el.dataset.no); if (f && f.sid) { O.rest.push(Object.assign({ id: f.sid }, S.soldiers[f.sid])); f.sid = null; f.how = null; f.sim = 0; } scheduleRender(); },
   ordConfirm: () => orderConfirm(),
+  omrPrintOpen: () => { S.omrP = { round: S.round || rounds()[0], sq: [S.squad === 'all' ? 'all' : S.squad] }; S.modal = omrPrintModal; scheduleRender(); },
+  omrPR: el => { S.omrP.round = el.dataset.r; scheduleRender(); },
+  omrPS: el => { const q = el.dataset.q; const P = S.omrP; if (q === 'all') P.sq = P.sq.includes('all') ? [] : ['all']; else { P.sq = P.sq.filter(x => x !== 'all'); P.sq = P.sq.includes(q) ? P.sq.filter(x => x !== q) : P.sq.concat([q]); } scheduleRender(); },
+  omrPrintGo: () => { const P = S.omrP; if (!P.sq.length) return; omrPrint(P.round, P.sq.map(q => q === 'all' ? 'all' : (squads().find(x => String(x) === q) ?? q))); S.modal = null; scheduleRender(); },
+  omrSave: () => omrSave(),
   wxRefresh: () => fetchWx(true),
   ordSplit: el => { S.ord.split = +el.dataset.n; scheduleRender(); },
   pdpaAccept: async () => {
@@ -1530,6 +1777,9 @@ const changeActions = {
   import: el => { importFile(el.files[0]); el.value = ''; },
   intake: el => { intakeFile(el.files[0]); el.value = ''; },
   ordFile: el => { orderFile(el.files[0]); el.value = ''; },
+  omrFile: el => { omrFile(el.files[0]); el.value = ''; },
+  omrSet: el => { const O = S.omr; const f = el.dataset.f; O[f] = f === 'sqIdx' || f === 'page' ? +el.value : el.value; omrBuild(); scheduleRender(); },
+  omrRow: el => { const x = S.omr.items[+el.dataset.i]; const f = el.dataset.f; if (el.type === 'checkbox') x[f] = el.checked; else if (f === 'u') x.u = el.value === '' ? null : +el.value; else x[f] = el.value; scheduleRender(); },
   ordSet: el => { S.ord[el.dataset.f] = el.checked; scheduleRender(); },
   inSet: el => { const f = el.dataset.f; S.intake[f] = el.type === 'checkbox' ? el.checked : el.value; scheduleRender(); },
   inRisk: el => { S.intake.over[el.dataset.k] = el.value; scheduleRender(); },
@@ -1714,6 +1964,6 @@ async function boot() {
 }
 
 // สำหรับทดสอบอัตโนมัติ
-window.__CARE = { heatIndexC, flagOf, statusOf, S, Store, parseDivision, analyzeIntake };
+window.__CARE = { heatIndexC, flagOf, statusOf, S, Store, parseDivision, analyzeIntake, omrSheetsHTML, omrRoster, OMR };
 boot();
 })();
