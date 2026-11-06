@@ -1196,7 +1196,7 @@ function orderFile(file) {
       const M = matchOrder(F);
       const hasPlt = F.some(f => f.plt);
       const fileSq = hasPlt && F.filter(f => f.plt).every(f => f.fsq);
-      S.ord = { fileName: file.name, sheet: main.n, F: M.F, rest: M.rest, addNew: true, renum, hasPlt, fileSq, split: fileSq ? 'f' : hasPlt ? 3 : 0 };
+      S.ord = { fileName: file.name, sheet: main.n, F: M.F, rest: M.rest, addNew: true, renum, hasPlt, fileSq, split: hasPlt ? 'p8' : 0 };
       S.modal = orderModal; scheduleRender();
     } catch (e) { console.error(e); toast('อ่านไฟล์ไม่ได้: ' + e.message); }
   };
@@ -1223,8 +1223,8 @@ function orderModal() {
     ${absent.length ? `<p class="small muted" style="margin:10px 0 0">หมายเหตุ "ขาด": ${absent.map(f => `${f.no}. ${esc(f.fname + ' ' + f.lname)}`).join(' · ')}</p>` : ''}
     ${O.rest.length ? `<div class="alert warn" style="margin-top:12px"><div class="small"><b>มีในระบบแต่ไม่อยู่ในไฟล์ (${O.rest.length})</b>${O.rest.map(s => { const c = String(((S.priv || {})[s.id] || {}).cid || ''); const d = c.length === 13 && ok.find(f => String(((S.priv || {})[f.sid] || {}).cid || '') === c); return esc(shortName(s)) + (d ? ` <b>(เลขบัตรซ้ำกับลำดับ ${d.no} — น่าจะส่งข้อมูลซ้ำ ลบได้ที่หน้าข้อมูลรายคน)</b>` : ''); }).join(' · ')} — จะได้ลำดับต่อท้าย ตรวจว่าย้ายหน่วย ส่งข้อมูลซ้ำ หรือสะกดชื่อต่างกันมาก</div></div>` : ''}
     ${O.hasPlt ? `<div class="field" style="margin-top:12px"><label>หมวดและหมู่</label><div class="small" style="margin-bottom:6px">${orderPlan().map(g => `<b>หมวด ${esc(g.plt)}</b> ${g.n} นาย → ${g.sq.map((c, i) => `หมู่ ${g.plt}${i + 1}: ${c}`).join(', ')}`).join('<br>')}</div>
-      <div class="seg">${(O.fileSq ? ['f'] : []).concat([0, 2, 3, 4]).map(n => `<button type="button" data-act="ordSplit" data-n="${n}" class="${O.split === n ? 'on' : ''}">${n === 'f' ? 'หมู่ตามไฟล์' : n ? 'หมวดละ ' + n + ' หมู่' : 'ไม่แบ่งหมู่'}</button>`).join('')}</div></div>` : ''}
-    <p class="tiny muted" style="margin:12px 0 0">เปลี่ยนลำดับ${O.hasPlt ? ' หมวด และหมู่' : ''} ไม่แก้ชื่อหรือสีกลุ่มเสี่ยง · จับคู่ด้วยเลขบัตรก่อน แล้วชื่อ-สกุล แล้วชื่อที่สะกดใกล้เคียง · ${O.split === 'f' ? 'หมู่ตามคอลัมน์ "หมู่" ในไฟล์' : 'แบ่งหมู่ตามลำดับในหมวด'}</p>
+      <div class="seg">${['p8'].concat(O.fileSq ? ['f'] : [], [0, 2, 3, 4]).map(n => `<button type="button" data-act="ordSplit" data-n="${n}" class="${O.split === n ? 'on' : ''}">${n === 'p8' ? 'หมู่ละ 8 นาย (1–8, 9–16, …)' : n === 'f' ? 'หมู่ตามไฟล์' : n ? 'หมวดละ ' + n + ' หมู่' : 'ไม่แบ่งหมู่'}</button>`).join('')}</div></div>` : ''}
+    <p class="tiny muted" style="margin:12px 0 0">เปลี่ยนลำดับ${O.hasPlt ? ' หมวด และหมู่' : ''} ไม่แก้ชื่อหรือสีกลุ่มเสี่ยง · จับคู่ด้วยเลขบัตรก่อน แล้วชื่อ-สกุล แล้วชื่อที่สะกดใกล้เคียง · ${O.split === 'p8' ? 'หมู่ละ 8 นายตามลำดับในหมวด' : O.split === 'f' ? 'หมู่ตามคอลัมน์ "หมู่" ในไฟล์' : 'แบ่งหมู่ตามลำดับในหมวด'}</p>
     <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-act="close">ยกเลิก</button><button class="btn primary" data-act="ordConfirm">ยืนยันจัดลำดับ</button></div>
   </div></div>`;
 }
@@ -1232,6 +1232,7 @@ function orderPlan() {
   const O = S.ord; const rows = O.F.filter(f => (f.sid || (O.addNew && !f.absent)) && f.plt).sort((a, b) => a.no - b.no);
   const plts = [...new Set(rows.map(f => f.plt))].sort();
   return plts.map(plt => { const m = rows.filter(f => f.plt === plt);
+    if (O.split === 'p8') { const sq = []; m.forEach((f, i) => { const k = Math.floor(i / 8); f.sq = plt + (k + 1); sq[k] = (sq[k] || 0) + 1; }); return { plt, n: m.length, sq }; }
     if (O.split === 'f' && m.every(f => f.fsq)) { const g = {}; m.forEach(f => { f.sq = f.fsq; g[f.fsq] = (g[f.fsq] || 0) + 1; }); return { plt, n: m.length, sq: Object.keys(g).sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).map(k => g[k]) }; }
     const k = O.split || 1; const base = Math.floor(m.length / k), extra = m.length % k;
     const sq = Array.from({ length: k }, (_, i) => base + (i < extra ? 1 : 0)); let i0 = 0; sq.forEach((c, i) => { m.slice(i0, i0 + c).forEach(f => { f.sq = O.split ? plt + (i + 1) : plt; }); i0 += c; });
@@ -1699,7 +1700,7 @@ const actions = {
   omrPrintGo: () => { const P = S.omrP; if (!P.sq.length) return; omrPrint(P.round, P.sq.map(q => q === 'all' ? 'all' : (squads().find(x => String(x) === q) ?? q))); S.modal = null; scheduleRender(); },
   omrSave: () => omrSave(),
   wxRefresh: () => fetchWx(true),
-  ordSplit: el => { S.ord.split = el.dataset.n === 'f' ? 'f' : +el.dataset.n; scheduleRender(); },
+  ordSplit: el => { const n = el.dataset.n; S.ord.split = n === 'f' || n === 'p8' ? n : +n; scheduleRender(); },
   pdpaAccept: async () => {
     if (!S.pdpaTick) return;
     try { if (Store.mode === 'demo') localSet('carenst_pdpa_demo', String(Date.now())); else { await Store.set(`users/${S.me.uid}/pdpaAt`, Date.now()); S.me.pdpaAt = Date.now(); } audit('ยอมรับข้อตกลง PDPA'); scheduleRender(); }
