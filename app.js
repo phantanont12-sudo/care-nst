@@ -163,7 +163,7 @@ const rl = r => ROUND_LABEL[r] || hm(r);
 function soldierList() {
   return Object.entries(S.soldiers || {}).map(([id, s]) => Object.assign({ id }, s)).sort((a, b) => (+a.no || 0) - (+b.no || 0));
 }
-function squads() { return [...new Set(soldierList().map(s => s.squad).filter(v => v !== '' && v != null))].sort((a, b) => (+a) - (+b)); }
+function squads() { return [...new Set(soldierList().map(s => s.squad).filter(v => v !== '' && v != null))].sort((a, b) => String(a).localeCompare(String(b), 'en', { numeric: true })); }
 
 /* ── วันนี้ร้อนไหม (ใช้กับเกณฑ์ BMI ตลอด 8 สัปดาห์ของการฝึก ตามที่หน่วยกำหนด) ── */
 const HOT_WEEKS = 8;
@@ -314,6 +314,7 @@ function viewDash() {
   return `
   <div class="page-h"><div><h1>ภาพรวม ${thaiDate(S.date, true)}</h1><div class="muted small">${S.date === todayStr() ? 'วันนี้' : 'ดูย้อนหลัง'} · อัปเดตอัตโนมัติ</div></div><button class="btn" data-act="brief">สรุปเช้านี้</button></div>
   ${(() => { const B = briefData(); return `<div class="card" style="padding:12px 14px;margin-bottom:12px"><div class="row" style="gap:16px;flex-wrap:wrap"><span class="pill ${B.docs.length ? 'lv3' : 'lv1'}">พบแพทย์ ${B.docs.length}</span>${[3, 2, 1, 0].map(lv => `<span class="row" style="gap:6px;display:inline-flex"><i class="rdot rd-${LV_COLOR[lv].k}"></i>${LV_COLOR[lv].n} <b class="num">${B.groups[lv].length}</b></span>`).join('')}<span class="small muted">ไม่อยู่ ${B.away.length}</span></div></div>`; })()}
+  ${S.date === todayStr() ? wxCard(true) : ''}
   ${can('admin') && sensitiveDue() && todayStr() >= sensitiveDue() && hasSensitive() ? `<div class="alert bad" style="margin-bottom:8px"><div><b>ครบกำหนดลบข้อมูลอ่อนไหวตาม PDPA (${thaiDate(sensitiveDue())})</b>ข้อมูลส่วนบุคคลและทะเบียนผู้ป่วยยังอยู่ในระบบ ${S.me.role === 'trainer' ? '<button class="btn sm danger" data-act="wipeSensitive" style="margin-left:6px">ลบตอนนี้</button>' : 'แจ้งผู้ฝึกให้ลบ'}</div></div>` : ''}
   ${missing.map(rd => `<div class="alert warn"><div><b>ยังกรอกสุขภาพรอบ ${rl(rd)} น. ไม่ครบ</b>กรอกแล้ว ${doneBy(rd)}/${list.length} นาย <button class="btn sm" data-act="goHealth" data-r="${rd}" style="margin-left:6px">ไปกรอก</button></div></div>`).join('')}
   ${hot.hot && w && w <= HOT_WEEKS ? `<div class="alert bad" style="margin-top:8px"><div><b>อากาศร้อนเกินเกณฑ์ (สัปดาห์ที่ ${w})</b>ดัชนีความร้อนสูงสุด ${hot.maxHI ?? '-'} / อุณหภูมิ ${hot.maxT ?? '-'}°C: ผู้ที่ BMI ≥30 หรือน้ำหนัก ≥100 กก. งดฝึก งดซ่อมวินัย อาบน้ำเพิ่มหลังอาหารกลางวันและก่อนออกกำลังกายเย็น</div></div>` : ''}
@@ -403,6 +404,7 @@ function viewHeat() {
   };
   return `
   <div class="page-h"><div><h1>ดัชนีความร้อน</h1><div class="muted small">วัด 08.00 10.00 13.00 15.00 17.00 น. · คำนวณดัชนีจากอุณหภูมิ + ความชื้นให้อัตโนมัติ</div></div></div>
+  ${wxCard(false)}
   ${flag ? `<div class="flagbox card" style="margin-bottom:12px"><i class="fl fl-${flag.flag.k}"></i><div><div class="small muted">ธงปัจจุบัน (${hm(flag.slot)} น.) ดัชนี ${flag.hi}</div><h2>${flag.flag.n}</h2>
     <div class="small">ดื่มน้ำ ${flag.flag.water} · ${flag.flag.wr}${flag.flag.note ? ' · <b>' + flag.flag.note + '</b>' : ''}</div></div></div>` : ''}
   <h2 style="margin:6px 0 10px">สนามฝึก</h2>
@@ -415,6 +417,78 @@ function viewHeat() {
     <p class="tiny muted" style="margin:8px 0 0">ตลอด 8 สัปดาห์ของการฝึก ถ้าอุณหภูมิเกิน 37°C หรือดัชนีเกิน 39 ผู้ที่ BMI ≥30 / น้ำหนัก ≥100 กก. งดฝึก ระบบจะติดป้ายให้อัตโนมัติ</p></div>`;
 }
 
+/* ════════════════ ดัชนีความร้อนออนไลน์ (Open-Meteo · ค่าอ้างอิง ไม่ใช่ค่าวัดจริงที่สนามฝึก) ════════════════ */
+const WX_DEF = { lat: 13.566, lon: 99.759, name: 'ค่ายบุรฉัตร จ.ราชบุรี' };
+const FLAG_RANK = { white: 0, green: 1, yellow: 2, red: 3, black: 4 };
+function wxLoc() { const st = S.settings || {}; return { lat: +st.wxLat || WX_DEF.lat, lon: +st.wxLon || WX_DEF.lon, name: st.wxName || WX_DEF.name }; }
+function wxPack(t, rh) { const hi = heatIndexC(t, rh); const f = flagOf(hi); return { t, rh, hi, fk: f ? f.k : null }; }
+const wxFlag = x => x && x.fk ? FLAGS.find(f => f.k === x.fk) : null;
+async function fetchWx(force) {
+  if (S._wxBusy) return; const L = wxLoc(); const now = Date.now();
+  if (!force && S.wx && S.wx.cur && now - S.wx.at < 15 * 60000 && S.wx.lat === L.lat && S.wx.lon === L.lon) return;
+  S._wxBusy = true;
+  try {
+    const u = `https://api.open-meteo.com/v1/forecast?latitude=${L.lat}&longitude=${L.lon}&current=temperature_2m,relative_humidity_2m&hourly=temperature_2m,relative_humidity_2m&timezone=Asia%2FBangkok&forecast_days=2`;
+    const r = await fetch(u, { cache: 'no-store' }); if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    const cur = Object.assign({ time: j.current.time }, wxPack(j.current.temperature_2m, j.current.relative_humidity_2m));
+    const hours = j.hourly.time.map((tm, i) => Object.assign({ time: tm }, wxPack(j.hourly.temperature_2m[i], j.hourly.relative_humidity_2m[i])));
+    S.wx = { at: now, lat: L.lat, lon: L.lon, cur, hours, err: null };
+    localSet('carenst_wx', JSON.stringify(S.wx));
+    checkWxAlert();
+  } catch (e) { S.wx = Object.assign({}, S.wx || {}, { err: String(e.message || e), errAt: now }); }
+  finally { S._wxBusy = false; scheduleRender(); }
+}
+function wxToday() {
+  const W = S.wx; if (!W || !W.hours) return null;
+  const d = todayStr(); const H = W.hours.filter(h => h.time.slice(0, 10) === d && +h.time.slice(11, 13) >= 6 && +h.time.slice(11, 13) <= 18);
+  if (!H.length) return null;
+  const peak = H.reduce((a, b) => (b.hi > a.hi ? b : a), H[0]);
+  const ranges = k => { const out = []; let st = null, prev = null; H.forEach(h => { const on = FLAG_RANK[h.fk] >= FLAG_RANK[k]; if (on && st == null) st = h; if (!on && st) { out.push([st.time.slice(11, 13), prev.time.slice(11, 13)]); st = null; } prev = h; }); if (st) out.push([st.time.slice(11, 13), prev.time.slice(11, 13)]); return out; };
+  const fmt = rs => rs.map(([a, b]) => a === b ? `${+a}.00 น.` : `${+a}.00–${+b + 1}.00 น.`).join(', ');
+  return { H, peak, red: fmt(ranges('red')), yellow: fmt(ranges('yellow')) };
+}
+function wxCard(compact) {
+  const W = S.wx; const L = wxLoc();
+  if (!W || !W.cur) return `<div class="card wx" style="margin-bottom:12px"><div class="row" style="justify-content:space-between"><b>ดัชนีความร้อนออนไลน์ · ${esc(L.name)}</b><button class="btn sm" data-act="wxRefresh">${W && W.err ? 'ลองใหม่' : 'โหลด'}</button></div><div class="small muted">${W && W.err ? 'ดึงข้อมูลไม่ได้ (' + esc(W.err) + ') · ตรวจสัญญาณอินเทอร์เน็ต' : 'กำลังดึงข้อมูล…'}</div></div>`;
+  const f = wxFlag(W.cur); const T = wxToday(); const m = S.date === todayStr() ? currentFlag() : null;
+  const upd = new Date(W.at).toLocaleTimeString('th-TH', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
+  const nowH = nowHM().replace(':', ''); const inHours = nowH >= '0700' && nowH <= '1800';
+  const stale = !m || (+nowH.slice(0, 2) * 60 + +nowH.slice(2)) - (+m.slot.slice(0, 2) * 60 + +m.slot.slice(2)) > 120;
+  const higher = m && f && FLAG_RANK[f.k] > FLAG_RANK[m.flag.k];
+  const warn = inHours && f && FLAG_RANK[f.k] >= 2 && (higher || stale);
+  const strip = T ? `<div class="wxstrip">${T.H.map(h => { const hf = wxFlag(h); return `<div class="wxh ${h.time.slice(11, 13) === nowH.slice(0, 2) ? 'now' : ''}" title="${+h.time.slice(11, 13)}.00 น. · ${h.t}°C ${h.rh}% · ดัชนี ${h.hi}"><i class="fl-${hf ? hf.k : 'white'}"></i><span>${+h.time.slice(11, 13)}</span><b>${Math.round(h.hi)}</b></div>`; }).join('')}</div>` : '';
+  return `<div class="card wx" style="margin-bottom:12px">
+    <div class="row" style="justify-content:space-between;gap:8px;align-items:flex-start"><div><b>ดัชนีความร้อนออนไลน์ · ${esc(L.name)}</b><div class="tiny muted">อัปเดต ${upd} น. · Open-Meteo · ค่าอ้างอิงของพื้นที่ ไม่ใช่ค่าวัดที่สนามฝึก</div></div><button class="btn sm" data-act="wxRefresh" ${S._wxBusy ? 'disabled' : ''}>รีเฟรช</button></div>
+    <div class="row" style="gap:14px;margin:10px 0 6px;flex-wrap:wrap">
+      <span class="row" style="gap:8px"><i class="fl fl-${f ? f.k : 'white'}" style="width:34px;height:24px;border-radius:4px;border:1px solid rgba(0,0,0,.25)"></i><span><b style="font-size:18px">${f ? f.n : '-'}</b> <span class="muted">ดัชนี ${W.cur.hi}</span></span></span>
+      <span class="small muted">${W.cur.t}°C · ความชื้น ${W.cur.rh}%</span>
+      ${m ? `<span class="small">วัดจริง ${hm(m.slot)} น.: <b>${m.flag.n}</b> ${m.hi}</span>` : '<span class="small muted">วันนี้ยังไม่ได้วัดที่สนาม</span>'}
+    </div>
+    ${warn ? `<div class="alert ${FLAG_RANK[f.k] >= 3 ? 'bad' : 'warn'}" style="margin:6px 0"><div class="small"><b>${higher ? 'ค่าออนไลน์สูงกว่าค่าวัดล่าสุด' : 'ยังไม่มีค่าวัดในช่วง 2 ชม.'}</b>ให้ครูวัดที่สนามฝึกเพื่อยืนยันธงตอนนี้</div></div>` : ''}
+    ${T ? `<div class="small" style="margin:6px 0">${T.red ? `<b style="color:var(--bad)">คาดธงแดงขึ้นไป: ${T.red}</b> · ` : ''}${T.yellow && !compact ? `ธงเหลืองขึ้นไป: ${T.yellow} · ` : ''}สูงสุดวันนี้ดัชนี ${T.peak.hi} (${+T.peak.time.slice(11, 13)}.00 น.)</div>` : ''}
+    ${strip}
+  </div>`;
+}
+function checkWxAlert() {
+  if (S.date !== todayStr() || !S.wx || !S.wx.cur) return;
+  const nowH = nowHM().replace(':', ''); if (nowH < '0600' || nowH > '1800') return;
+  const T = wxToday(); const curF = wxFlag(S.wx.cur);
+  const next = T ? T.H.filter(h => h.time.slice(11, 13) > nowH.slice(0, 2)).slice(0, 2) : [];
+  const nf = next.reduce((a, h) => (FLAG_RANK[h.fk] > FLAG_RANK[a ? a.fk : 'white'] ? h : a), null);
+  const key = 'carenst_wxflag_' + todayStr(); const seen = localGet(key) || 'white';
+  const cand = [];
+  if (curF && FLAG_RANK[curF.k] >= 2) cand.push({ f: curF, hi: S.wx.cur.hi, when: 'ตอนนี้', slot: nowH });
+  if (nf && FLAG_RANK[nf.fk] >= 3) cand.push({ f: wxFlag(nf), hi: nf.hi, when: `คาด ${+nf.time.slice(11, 13)}.00 น.`, slot: nf.time.slice(11, 13) + '00' });
+  const top = cand.sort((a, b) => FLAG_RANK[b.f.k] - FLAG_RANK[a.f.k])[0];
+  if (!top || FLAG_RANK[top.f.k] <= FLAG_RANK[seen]) return;
+  const m = currentFlag(); if (m && FLAG_RANK[m.flag.k] >= FLAG_RANK[top.f.k]) return;
+  localSet(key, top.f.k);
+  S.heatAlert = { flag: top.f, hi: top.hi, slot: top.slot, prev: m ? m.flag : null, online: top.when };
+  notifyDevice(`ออนไลน์: ${top.f.n} (${top.when})`, `ดัชนี ${top.hi} · ให้วัดที่สนามฝึกยืนยัน · ดื่มน้ำ ${top.f.water} · ${top.f.wr}`);
+  scheduleRender();
+}
+
 /* ════════════════ หน้า: ทะเบียนทหารใหม่ ════════════════ */
 function viewSoldiers() {
   const list = soldierList(); const q = S.q.trim().toLowerCase();
@@ -424,6 +498,7 @@ function viewSoldiers() {
   <div class="page-h"><div><h1>ทหารใหม่</h1><div class="muted small">${list.length} นาย · ${squads().length} หมู่ฝึก</div></div>
     ${admin ? `<div class="row"><button class="btn" data-act="tpl">${ic('dl')}แบบฟอร์ม Excel</button>
       <label class="btn primary">${ic('ul')}นำเข้าข้อมูลแรกรับ (กองพล)<input type="file" accept=".csv,.xlsx,.xls" data-act="intake" hidden></label>
+      <label class="btn">${ic('ul')}จัดลำดับตามบัญชีหน่วย<input type="file" accept=".xlsx,.xls,.csv" data-act="ordFile" hidden></label>
       <label class="btn">${ic('ul')}นำเข้า Excel<input type="file" accept=".xlsx,.xls,.csv" data-act="import" hidden></label>
       <button class="btn" data-act="addSoldier">${ic('plus')}เพิ่ม</button></div>` : ''}</div>
   <div class="row" style="margin-bottom:12px">
@@ -856,6 +931,7 @@ function viewSettings() {
         <div class="field"><label>ผลัด</label><input class="input" name="cohort" value="${esc(st.cohort || '')}" placeholder="2/69" ${admin ? '' : 'disabled'}></div>
         <div class="field"><label>วันเริ่มฝึก</label><input class="input" type="date" name="start" value="${esc(st.start || '')}" ${admin ? '' : 'disabled'}></div>
         <div class="field"><label>วันจบการฝึก</label><input class="input" type="date" name="end" value="${esc(st.end || '')}" placeholder="" ${admin ? '' : 'disabled'}><span class="tiny muted">${st.end ? '' : (trainEnd() ? 'ถ้าเว้นว่าง ใช้ ' + thaiDate(trainEnd()) : '')}</span></div>
+        <div class="field full"><label>พิกัดสนามฝึก (ดัชนีความร้อนออนไลน์)</label><div class="row" style="gap:8px"><input class="input" name="wxName" value="${esc(st.wxName || WX_DEF.name)}" ${admin ? '' : 'disabled'} style="flex:2"><input class="input num" name="wxLat" inputmode="decimal" value="${esc(st.wxLat || WX_DEF.lat)}" ${admin ? '' : 'disabled'} style="flex:1" aria-label="ละติจูด"><input class="input num" name="wxLon" inputmode="decimal" value="${esc(st.wxLon || WX_DEF.lon)}" ${admin ? '' : 'disabled'} style="flex:1" aria-label="ลองจิจูด"></div></div>
         <div class="field"><label>ลบข้อมูลอ่อนไหวหลังจบฝึก (วัน)</label><input class="input" name="retain" inputmode="numeric" value="${esc(st.retain || 30)}" ${admin ? '' : 'disabled'}></div>
         <div class="field full"><label>ผู้รับผิดชอบ/ติดต่อเรื่องข้อมูลส่วนบุคคล</label><input class="input" name="dpo" value="${esc(st.dpo || '')}" placeholder="เช่น ร.ท.… ผู้ฝึก โทร …" ${admin ? '' : 'disabled'}></div>
         <div class="field full"><label>รอบคัดกรองอุณหภูมิ/สีปัสสาวะ (มาตรการ พบ. ผลัด 2/69: 3 เวลา)</label>
@@ -1059,6 +1135,122 @@ function intakeModal() {
     <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-act="close">ยกเลิก</button><button class="btn primary" data-act="inConfirm" ${sel.length ? '' : 'disabled'}>นำเข้า ${sel.length} นาย</button></div>
   </div></div>`;
 }
+/* ════════════════ จัดลำดับตามบัญชีรายชื่อของหน่วย (ไฟล์ Excel: ลำดับ ชื่อ สกุล เลขบัตร หมายเหตุ) ════════════════ */
+const normName = v => String(v == null ? '' : v).replace(/\s+/g, '').replace(/[์]/g, '').trim();
+function nameSim(a, b) {
+  a = normName(a); b = normName(b); if (!a || !b) return 0; if (a === b) return 1;
+  const bg = s => { const m = new Map(); for (let i = 0; i < s.length - 1; i++) { const k = s.slice(i, i + 2); m.set(k, (m.get(k) || 0) + 1); } return m; };
+  const A = bg(a), B = bg(b); let inter = 0; A.forEach((n, k) => { inter += Math.min(n, B.get(k) || 0); });
+  return (2 * inter) / Math.max(1, (a.length - 1) + (b.length - 1));
+}
+function parseOrderFile(rows) {
+  const hi = rows.findIndex(r => r.some(c => String(c).trim() === 'ลำดับ') && r.some(c => String(c).trim() === 'ชื่อ'));
+  if (hi < 0) return null;
+  const H = rows[hi].map(c => String(c).trim());
+  const col = (...keys) => H.findIndex(h => keys.some(k => h.includes(k)));
+  const cNo = H.indexOf('ลำดับ'), cF = H.indexOf('ชื่อ'), cL = col('สกุล'), cCid = col('บัตร'), cNote = col('หมายเหตุ'), cPh = col('โทร'), cDob = col('เกิด');
+  const cPlt = H.findIndex(h => /^(มว\.?|หมวด)$/.test(h)), cOld = col('ลำดับเดิม');
+  const out = [];
+  rows.slice(hi + 1).forEach(r => {
+    const fname = String(r[cF] || '').trim(); const no = num(r[cNo]);
+    if (!fname) return;
+    out.push({ no, plt: cPlt >= 0 ? String(r[cPlt] || '').trim().toUpperCase() : '', old: cOld >= 0 ? num(r[cOld]) : null, fname, lname: cL >= 0 ? String(r[cL] || '').trim() : '', cid: cCid >= 0 ? String(r[cCid] || '').replace(/\D/g, '') : '',
+      note: cNote >= 0 ? String(r[cNote] || '').trim() : '', phone: cPh >= 0 ? String(r[cPh] || '').replace(/\D/g, '') : '', dob: cDob >= 0 ? String(r[cDob] || '').trim() : '' });
+  });
+  return out;
+}
+function matchOrder(F) {
+  const list = soldierList(); const used = new Set();
+  const cidOf = s => String(((S.priv || {})[s.id] || {}).cid || '').replace(/\D/g, '');
+  const full = x => (x.fname || '') + (x.lname || '');
+  F.forEach(f => { f.sid = null; f.how = null; f.sim = 0; f.absent = /ขาด|ไม่มา|ไม่รายงาน/.test(f.note); });
+  // 1) เลขบัตรตรง และชื่อไม่ต่างกันมาก
+  F.forEach(f => { if (f.cid.length !== 13) return; const s = list.find(x => !used.has(x.id) && cidOf(x) === f.cid); if (s && nameSim(full(f), full(s)) >= 0.5) { f.sid = s.id; f.how = 'เลขบัตร'; f.sim = nameSim(full(f), full(s)); used.add(s.id); } });
+  // 2) ชื่อ-สกุลตรงกัน
+  F.forEach(f => { if (f.sid) return; const s = list.find(x => !used.has(x.id) && normName(full(x)) === normName(full(f))); if (s) { f.sid = s.id; f.how = 'ชื่อตรง'; f.sim = 1; used.add(s.id); } });
+  // 3) ชื่อใกล้เคียง (สะกดต่างกันเล็กน้อย)
+  F.forEach(f => { if (f.sid) return; let best = null, bs = 0; list.forEach(x => { if (used.has(x.id)) return; const v = nameSim(full(f), full(x)); if (v > bs) { bs = v; best = x; } }); if (best && bs >= 0.72) { f.sid = best.id; f.how = 'ชื่อใกล้เคียง'; f.sim = bs; used.add(best.id); } });
+  return { F, rest: list.filter(s => !used.has(s.id)) };
+}
+function orderFile(file) {
+  if (!file || !needXLSX()) return;
+  if (!soldierList().length) return toast('ยังไม่มีรายชื่อในระบบ นำเข้าข้อมูลกองพลก่อน');
+  const fr = new FileReader();
+  fr.onload = () => {
+    try {
+      const wb = XLSX.read(new Uint8Array(fr.result), { type: 'array', raw: /\.csv$/i.test(file.name) });
+      const sheets = wb.SheetNames.map(n => ({ n, F: parseOrderFile(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: false, defval: '' })) })).filter(x => x.F && x.F.length);
+      if (!sheets.length) return toast('ไม่พบหัวตาราง "ลำดับ" และ "ชื่อ" ในไฟล์');
+      // ถ้ามีแผ่น "เรียงลำดับใหม่" (มีคอลัมน์ลำดับเดิม) ใช้แผ่นนั้น แล้วดึงหมวดจากแผ่นที่มีคอลัมน์ มว.
+      const main = sheets.find(x => x.F.some(f => f.old != null)) || sheets[0];
+      const F = main.F; const pSheet = sheets.find(x => x.F.some(f => f.plt));
+      if (pSheet && pSheet !== main) { const byNo = {}; pSheet.F.forEach(f => { if (f.no != null) byNo[f.no] = f.plt; }); F.forEach(f => { if (!f.plt && f.old != null) f.plt = byNo[f.old] || ''; }); }
+      // เลขลำดับในไฟล์ข้าม/ซ้ำ → เรียงใหม่ตามแถว (เฉพาะคนที่มา)
+      const present = F.filter(f => !/ขาด|ไม่มา|ไม่รายงาน/.test(f.note)); const nos = present.map(f => f.no);
+      const renum = nos.some(n => n == null) || new Set(nos).size !== nos.length || Math.max(...nos) !== nos.length;
+      if (renum) { present.forEach((f, i) => { f.fileNo = f.no; f.no = i + 1; }); F.filter(f => !present.includes(f)).forEach((f, i) => { f.fileNo = f.no; f.no = present.length + i + 1; }); }
+      const M = matchOrder(F);
+      const hasPlt = F.some(f => f.plt);
+      S.ord = { fileName: file.name, sheet: main.n, F: M.F, rest: M.rest, addNew: true, renum, hasPlt, split: hasPlt ? 3 : 0 };
+      S.modal = orderModal; scheduleRender();
+    } catch (e) { console.error(e); toast('อ่านไฟล์ไม่ได้: ' + e.message); }
+  };
+  fr.readAsArrayBuffer(file);
+}
+function orderModal() {
+  const O = S.ord; if (!O) return '';
+  const ok = O.F.filter(f => f.sid), fuzzy = ok.filter(f => f.sim < 1), miss = O.F.filter(f => !f.sid && !f.absent), absent = O.F.filter(f => !f.sid && f.absent);
+  const sn = id => { const s = S.soldiers[id]; return s ? shortName(s) : '-'; };
+  const lastNo = Math.max(0, ...O.F.map(f => f.no));
+  return `<div class="ov" data-act="closeOv"><div class="sheet" role="dialog" aria-modal="true" aria-label="จัดลำดับตามบัญชีรายชื่อ" style="max-width:820px">
+    <div class="sheet-h"><div><h2>จัดลำดับตามบัญชีรายชื่อ</h2><div class="tiny muted">${esc(O.fileName)} · แผ่น "${esc(O.sheet || '')}" · ${O.F.length} แถว${O.renum ? ' · เลขลำดับในไฟล์ข้าม/ซ้ำ จึงเรียงใหม่ตามแถว 1–' + O.F.filter(f => !f.absent).length : ''}</div></div><button class="x" data-act="close" aria-label="ปิด">×</button></div>
+    <div class="grid g-stats" style="margin-bottom:12px">
+      <div class="card stat ok"><div class="k">จับคู่ได้</div><div class="v num">${ok.length}</div><div class="s">จะได้ลำดับตามไฟล์</div></div>
+      <div class="card stat ${miss.length ? 'warn' : ''}"><div class="k">มีในไฟล์ ไม่มีในระบบ</div><div class="v num">${miss.length}</div><div class="s">${O.addNew ? 'จะเพิ่มเป็นทหารใหม่' : 'ข้ามไป'}</div></div>
+      <div class="card stat"><div class="k">หมายเหตุ "ขาด"</div><div class="v num">${absent.length}</div><div class="s">ไม่เพิ่มเข้าระบบ</div></div>
+      <div class="card stat ${O.rest.length ? 'warn' : ''}"><div class="k">มีในระบบ ไม่มีในไฟล์</div><div class="v num">${O.rest.length}</div><div class="s">ต่อท้ายลำดับ ${lastNo + 1}+</div></div>
+    </div>
+    ${fuzzy.length ? `<h3 style="margin-bottom:6px">ชื่อสะกดต่างกัน (${fuzzy.length}) — ตรวจว่าเป็นคนเดียวกัน</h3><div class="tbl-wrap" style="max-height:260px;overflow:auto"><table class="tbl"><thead><tr><th>ลำดับ</th><th>ในไฟล์</th><th>ในระบบ (กองพล)</th><th>จับคู่โดย</th><th></th></tr></thead><tbody>
+      ${fuzzy.map(f => `<tr><td class="num">${f.no}</td><td>${esc(f.fname + ' ' + f.lname)}</td><td>${esc(sn(f.sid))}</td><td class="small muted">${f.how}</td><td><button class="btn sm" data-act="ordUnlink" data-no="${f.no}">ไม่ใช่คนเดียวกัน</button></td></tr>`).join('')}
+    </tbody></table></div>` : ''}
+    ${miss.length ? `<h3 style="margin:12px 0 6px">มีในไฟล์ แต่ไม่มีในข้อมูลกองพล (${miss.length})</h3><div class="small">${miss.map(f => `${f.no}. ${esc(f.fname + ' ' + f.lname)}`).join(' · ')}</div>
+      <label class="check" style="margin-top:6px"><input type="checkbox" data-act="ordSet" data-f="addNew" ${O.addNew ? 'checked' : ''}><span>เพิ่มเป็นทหารใหม่ (ชื่อ-ลำดับ ส่วนสูง/น้ำหนักกรอกภายหลัง)</span></label>` : ''}
+    ${absent.length ? `<p class="small muted" style="margin:10px 0 0">หมายเหตุ "ขาด": ${absent.map(f => `${f.no}. ${esc(f.fname + ' ' + f.lname)}`).join(' · ')}</p>` : ''}
+    ${O.rest.length ? `<div class="alert warn" style="margin-top:12px"><div class="small"><b>มีในระบบแต่ไม่อยู่ในไฟล์ (${O.rest.length})</b>${O.rest.map(s => { const c = String(((S.priv || {})[s.id] || {}).cid || ''); const d = c.length === 13 && ok.find(f => String(((S.priv || {})[f.sid] || {}).cid || '') === c); return esc(shortName(s)) + (d ? ` <b>(เลขบัตรซ้ำกับลำดับ ${d.no} — น่าจะส่งข้อมูลซ้ำ ลบได้ที่หน้าข้อมูลรายคน)</b>` : ''); }).join(' · ')} — จะได้ลำดับต่อท้าย ตรวจว่าย้ายหน่วย ส่งข้อมูลซ้ำ หรือสะกดชื่อต่างกันมาก</div></div>` : ''}
+    ${O.hasPlt ? `<div class="field" style="margin-top:12px"><label>หมวดและหมู่</label><div class="small" style="margin-bottom:6px">${orderPlan().map(g => `<b>หมวด ${esc(g.plt)}</b> ${g.n} นาย → ${g.sq.map((c, i) => `หมู่ ${g.plt}${i + 1}: ${c}`).join(', ')}`).join('<br>')}</div>
+      <div class="seg">${[0, 2, 3, 4].map(n => `<button type="button" data-act="ordSplit" data-n="${n}" class="${O.split === n ? 'on' : ''}">${n ? 'หมวดละ ' + n + ' หมู่' : 'ไม่แบ่งหมู่'}</button>`).join('')}</div></div>` : ''}
+    <p class="tiny muted" style="margin:12px 0 0">เปลี่ยนลำดับ${O.hasPlt ? ' หมวด และหมู่' : ''} ไม่แก้ชื่อหรือสีกลุ่มเสี่ยง · จับคู่ด้วยเลขบัตรก่อน แล้วชื่อ-สกุล แล้วชื่อที่สะกดใกล้เคียง · แบ่งหมู่ตามลำดับในหมวด</p>
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-act="close">ยกเลิก</button><button class="btn primary" data-act="ordConfirm">ยืนยันจัดลำดับ</button></div>
+  </div></div>`;
+}
+function orderPlan() {
+  const O = S.ord; const rows = O.F.filter(f => (f.sid || (O.addNew && !f.absent)) && f.plt).sort((a, b) => a.no - b.no);
+  const plts = [...new Set(rows.map(f => f.plt))].sort();
+  return plts.map(plt => { const m = rows.filter(f => f.plt === plt); const k = O.split || 1; const base = Math.floor(m.length / k), extra = m.length % k;
+    const sq = Array.from({ length: k }, (_, i) => base + (i < extra ? 1 : 0)); let i0 = 0; sq.forEach((c, i) => { m.slice(i0, i0 + c).forEach(f => { f.sq = O.split ? plt + (i + 1) : plt; }); i0 += c; });
+    return { plt, n: m.length, sq: O.split ? sq : [m.length] }; });
+}
+async function orderConfirm() {
+  const O = S.ord; if (!O) return;
+  const upd = {}; const lastNo = Math.max(0, ...O.F.map(f => f.no));
+  if (O.hasPlt) orderPlan();
+  O.F.forEach(f => { if (f.sid) { upd[f.sid + '/no'] = f.no; if (O.hasPlt && f.plt) { upd[f.sid + '/plt'] = f.plt; upd[f.sid + '/squad'] = f.sq; } } });
+  O.rest.sort((a, b) => (+a.no || 0) - (+b.no || 0)).forEach((s, i) => { upd[s.id + '/no'] = lastNo + 1 + i; });
+  const adds = O.addNew ? O.F.filter(f => !f.sid && !f.absent) : [];
+  const pu = {};
+  adds.forEach(f => {
+    let id = 'm' + f.no; while (S.soldiers[id] || upd[id]) id += '_';
+    upd[id] = { no: f.no, plt: f.plt || null, squad: (O.hasPlt && f.sq) || null, rank: 'พลฯ', fname: f.fname, lname: f.lname || null, risk: 'none', age: ageFrom(f.dob, S.settings.start || todayStr()) || null, src: 'บัญชีหน่วย' };
+    if (can('priv') && (f.cid || f.phone)) pu[id] = Object.assign({ at: Date.now() }, f.cid ? { cid: f.cid } : {}, f.phone ? { phone: f.phone } : {});
+  });
+  try {
+    await Store.update('soldiers', upd);
+    if (Object.keys(pu).length) await Store.update('private', pu);
+    audit('จัดลำดับตามบัญชีรายชื่อ', null, `${O.F.filter(f => f.sid).length} นาย · เพิ่มใหม่ ${adds.length}${O.hasPlt ? ' · หมวด/หมู่' : ''}`);
+    S.modal = null; S.ord = null; toast(`จัดลำดับแล้ว · เพิ่มใหม่ ${adds.length} นาย`);
+  } catch (e) { toast('บันทึกไม่ได้: ' + (e.code || e.message)); }
+}
+
 function intakeFile(file) {
   if (!file || !needXLSX()) return;
   const fr = new FileReader();
@@ -1142,6 +1334,7 @@ function briefModal() {
     ${B.docs.length ? `<div class="alist" style="margin-top:10px">${B.docs.map(x => `<div class="aitem"><span class="pill lv3">พบแพทย์</span><div style="min-width:0"><div><b>${esc(x.s.no)}.</b> ${esc(shortName(x.s))} <span class="muted small">หมู่ ${esc(x.s.squad)}</span></div><div class="why">${esc(x.why.join(' · '))}</div></div></div>`).join('')}</div>` : ''}
     <h3 style="margin:16px 0 8px">การฝึกแยกตามสี</h3>
     <div class="alist">${[3, 2, 1, 0].map(lv => { const g = B.groups[lv]; const c = LV_COLOR[lv]; return `<div class="aitem" style="align-items:flex-start"><i class="rdot rd-${c.k}" style="margin-top:6px"></i><div style="flex:1;min-width:0"><div class="row" style="justify-content:space-between"><b>${c.n} · ${c.d}</b><b class="num">${g.length} นาย</b></div>${lv >= 2 && g.length ? `<div class="why">${g.map(x => esc(x.s.no + '. ' + shortName(x.s))).join(', ')}</div>` : ''}</div></div>`; }).join('')}</div>
+    ${(() => { const T = wxToday(); return T ? `<p class="small" style="margin:12px 0 0"><b>พยากรณ์วันนี้ (ออนไลน์):</b> สูงสุดดัชนี ${T.peak.hi} (${+T.peak.time.slice(11, 13)}.00 น.)${T.red ? ` · <b style="color:var(--bad)">ธงแดงขึ้นไป ${T.red}</b>` : ''}${T.yellow ? ` · ธงเหลืองขึ้นไป ${T.yellow}` : ''}</p>` : ''; })()}
     ${B.flag ? `<div class="alert ${B.flag.flag.k === 'red' || B.flag.flag.k === 'black' ? 'bad' : B.flag.flag.k === 'yellow' ? 'warn' : 'info'}" style="margin-top:12px"><div><b>${B.flag.flag.n} (ดัชนี ${B.flag.hi} · ${hm(B.flag.slot)} น.)</b>ดื่มน้ำ ${B.flag.flag.water} · ${B.flag.flag.wr}${B.flag.flag.note ? ' · ' + B.flag.flag.note : ''}</div></div>` : '<p class="small muted" style="margin-top:12px">ยังไม่ได้วัดดัชนีความร้อนวันนี้</p>'}
     <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-act="copyBrief">${ic('copy')}คัดลอกส่งไลน์</button><button class="btn primary" data-act="close">รับทราบ</button></div>
   </div></div>`;
@@ -1152,6 +1345,7 @@ function briefText() {
   L.push(`ส่งพบแพทย์ ${B.docs.length} นาย`); B.docs.forEach(x => L.push(`  - ${x.s.no}. ${shortName(x.s)} (${x.why.join(', ')})`));
   L.push('การฝึกแยกตามสี:'); [3, 2, 1, 0].forEach(lv => L.push(`  ${LV_COLOR[lv].n} (${LV_COLOR[lv].d}) ${B.groups[lv].length} นาย`));
   if (B.flag) L.push(`ธงความร้อน: ${B.flag.flag.n} ดัชนี ${B.flag.hi} (${hm(B.flag.slot)} น.)`);
+  const T = wxToday(); if (T) L.push(`พยากรณ์วันนี้ (ออนไลน์): สูงสุดดัชนี ${T.peak.hi} (${+T.peak.time.slice(11, 13)}.00 น.)${T.red ? ' · ธงแดงขึ้นไป ' + T.red : ''}${T.yellow ? ' · ธงเหลืองขึ้นไป ' + T.yellow : ''}`);
   L.push(PDPA_FOOT);
   return L.join('\n');
 }
@@ -1189,7 +1383,7 @@ function checkHeatChange() {
 function heatBanner() {
   const a = S.heatAlert; if (!a) return '';
   const tone = a.flag.k === 'red' || a.flag.k === 'black' ? 'bad' : a.flag.k === 'yellow' ? 'warn' : 'info';
-  return `<div class="popalert alert ${tone}" role="alert"><i class="fl fl-${a.flag.k}" style="width:34px;height:24px;flex:0 0 34px;border-radius:4px;border:1px solid rgba(0,0,0,.3)"></i><div style="flex:1;min-width:0"><b>ธงความร้อนเปลี่ยน${a.prev ? ` จาก${a.prev.n}` : ''} เป็น${a.flag.n}</b>ดัชนี ${a.hi} (${hm(a.slot)} น.) · ดื่มน้ำ ${a.flag.water} · ${a.flag.wr}${a.flag.note ? ' · <b style="display:inline">' + a.flag.note + '</b>' : ''}</div><button class="btn sm" data-act="heatOk">รับทราบ</button></div>`;
+  return `<div class="popalert alert ${tone}" role="alert"><i class="fl fl-${a.flag.k}" style="width:34px;height:24px;flex:0 0 34px;border-radius:4px;border:1px solid rgba(0,0,0,.3)"></i><div style="flex:1;min-width:0">${a.online ? `<b>ดัชนีความร้อนออนไลน์ ${a.online}: ${a.flag.n}</b>ดัชนี ${a.hi} · ให้ครูวัดที่สนามฝึกยืนยัน` : `<b>ธงความร้อนเปลี่ยน${a.prev ? ` จาก${a.prev.n}` : ''} เป็น${a.flag.n}</b>ดัชนี ${a.hi} (${hm(a.slot)} น.)`} · ดื่มน้ำ ${a.flag.water} · ${a.flag.wr}${a.flag.note ? ' · <b style="display:inline">' + a.flag.note + '</b>' : ''}</div><button class="btn sm" data-act="heatOk">รับทราบ</button></div>`;
 }
 
 function exportReport() {
@@ -1249,6 +1443,10 @@ const actions = {
   away: async el => { const id = el.dataset.id; const cur = ((S.health[S.round] || {})[id] || {}).away; await Store.update(`health/${S.date}/${S.round}/${id}`, Object.assign({ away: cur ? null : true }, stamp())); },
   soldier: el => soldierModal(el.dataset.id),
   wk: el => { S.wk = +el.dataset.w; scheduleRender(); },
+  ordUnlink: el => { const O = S.ord; const f = O.F.find(x => String(x.no) === el.dataset.no); if (f && f.sid) { O.rest.push(Object.assign({ id: f.sid }, S.soldiers[f.sid])); f.sid = null; f.how = null; f.sim = 0; } scheduleRender(); },
+  ordConfirm: () => orderConfirm(),
+  wxRefresh: () => fetchWx(true),
+  ordSplit: el => { S.ord.split = +el.dataset.n; scheduleRender(); },
   pdpaAccept: async () => {
     if (!S.pdpaTick) return;
     try { if (Store.mode === 'demo') localSet('carenst_pdpa_demo', String(Date.now())); else { await Store.set(`users/${S.me.uid}/pdpaAt`, Date.now()); S.me.pdpaAt = Date.now(); } audit('ยอมรับข้อตกลง PDPA'); scheduleRender(); }
@@ -1331,6 +1529,8 @@ const changeActions = {
   },
   import: el => { importFile(el.files[0]); el.value = ''; },
   intake: el => { intakeFile(el.files[0]); el.value = ''; },
+  ordFile: el => { orderFile(el.files[0]); el.value = ''; },
+  ordSet: el => { S.ord[el.dataset.f] = el.checked; scheduleRender(); },
   inSet: el => { const f = el.dataset.f; S.intake[f] = el.type === 'checkbox' ? el.checked : el.value; scheduleRender(); },
   inRisk: el => { S.intake.over[el.dataset.k] = el.value; scheduleRender(); },
   pSet: el => { S.P[el.dataset.f] = el.value; scheduleRender(); },
@@ -1362,7 +1562,8 @@ const submitActions = {
   saveSettings: async f => {
     const fd = new FormData(f);
     const rds = fd.getAll('rounds'); if (!rds.length) return toast('เลือกรอบตรวจอย่างน้อย 1 รอบ');
-    await Store.update('settings', { unit: String(fd.get('unit') || '').trim(), cohort: String(fd.get('cohort') || '').trim(), start: fd.get('start') || null, end: fd.get('end') || null, retain: Math.max(1, Math.min(365, +fd.get('retain') || 30)), dpo: String(fd.get('dpo') || '').trim().slice(0, 160) || null, rounds: rds });
+    await Store.update('settings', { unit: String(fd.get('unit') || '').trim(), cohort: String(fd.get('cohort') || '').trim(), start: fd.get('start') || null, end: fd.get('end') || null, retain: Math.max(1, Math.min(365, +fd.get('retain') || 30)), dpo: String(fd.get('dpo') || '').trim().slice(0, 160) || null, wxName: String(fd.get('wxName') || '').trim().slice(0, 80) || null, wxLat: num(fd.get('wxLat')) || null, wxLon: num(fd.get('wxLon')) || null, rounds: rds });
+    fetchWx(true);
     toast('บันทึกแล้ว');
   },
   login: async f => {
@@ -1472,7 +1673,10 @@ async function boot() {
   applyTheme(); bindEvents();
   // เปลี่ยนวันอัตโนมัติเมื่อข้ามเที่ยงคืน (ถ้ากำลังดูวันนี้) และอัปเดตเวลาที่ใช้ตรวจเกณฑ์
   S._lastToday = todayStr();
-  setInterval(() => { const t = todayStr(); if (S._lastToday !== t && S.date === S._lastToday) { S.date = t; subscribeDate(); } S._lastToday = t; if (S.view === 'punish' || S.view === 'dash') scheduleRender(); if (nowHM() >= '08:00') maybeBrief(false); }, 60000);
+  try { S.wx = JSON.parse(localGet('carenst_wx') || 'null'); } catch (e) { S.wx = null; }
+  fetchWx();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) fetchWx(); });
+  setInterval(() => { if (!S.wx || Date.now() - (S.wx.at || 0) > 20 * 60000) fetchWx(); checkWxAlert(); const t = todayStr(); if (S._lastToday !== t && S.date === S._lastToday) { S.date = t; subscribeDate(); } S._lastToday = t; if (S.view === 'punish' || S.view === 'dash') scheduleRender(); if (nowHM() >= '08:00') maybeBrief(false); }, 60000);
   if ('serviceWorker' in navigator && location.protocol === 'https:') { navigator.serviceWorker.register('sw.js').catch(() => {}); }
   const cfg = window.FIREBASE_CONFIG;
   if (!cfg) {
